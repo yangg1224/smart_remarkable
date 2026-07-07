@@ -918,37 +918,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "ghostwriter"
-version = "0.4.0"
-dependencies = [
- "anyhow",
- "async-trait",
- "base64 0.22.1",
- "byteorder",
- "clap",
- "clippy",
- "dotenv",
- "env_logger",
- "evdev",
- "figment",
- "image",
- "imageproc",
- "log",
- "reqwest",
- "resvg",
- "rust-embed",
- "serde",
- "serde_json",
- "svg2polylines",
- "tokio",
- "tokio-stream",
- "tokio-util",
- "toml",
- "ureq",
- "warp",
-]
-
-[[package]]
 name = "gif"
 version = "0.13.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2892,6 +2861,37 @@ name = "smallvec"
 version = "1.15.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "67b1b7a3b5fe4f1376887184045fcf45c69e92af734b7aaddc05fb777b6fbd03"
+
+[[package]]
+name = "smart_remarkable"
+version = "0.4.0"
+dependencies = [
+ "anyhow",
+ "async-trait",
+ "base64 0.22.1",
+ "byteorder",
+ "clap",
+ "clippy",
+ "dotenv",
+ "env_logger",
+ "evdev",
+ "figment",
+ "image",
+ "imageproc",
+ "log",
+ "reqwest",
+ "resvg",
+ "rust-embed",
+ "serde",
+ "serde_json",
+ "svg2polylines",
+ "tokio",
+ "tokio-stream",
+ "tokio-util",
+ "toml",
+ "ureq",
+ "warp",
+]
 
 [[package]]
 name = "socket2"

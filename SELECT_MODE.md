@@ -9,7 +9,7 @@ resize it with reMarkable's native selection (lasso) tool.
 Run with:
 
 ```sh
-ANTHROPIC_API_KEY=sk-... ./ghostwriter --select-mode
+ANTHROPIC_API_KEY=sk-... ./smart_remarkable --select-mode
 ```
 
 Then, in a notebook, use your **finger** (not the pen):
@@ -43,9 +43,9 @@ CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER=aarch64-unknown-linux-gnu-gcc \
   cargo build --release --target aarch64-unknown-linux-gnu
 
 # Copy and run (device IP shown in Settings → Help → About, password too)
-scp target/aarch64-unknown-linux-gnu/release/ghostwriter root@<device-ip>:
+scp target/aarch64-unknown-linux-gnu/release/smart_remarkable root@<device-ip>:
 ssh root@<device-ip>
-ANTHROPIC_API_KEY=sk-... ./ghostwriter --select-mode
+ANTHROPIC_API_KEY=sk-... ./smart_remarkable --select-mode
 ```
 
 The bundled uinput kernel module is loaded automatically (prebuilt for

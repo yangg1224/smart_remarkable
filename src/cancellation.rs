@@ -4,7 +4,7 @@ use tokio_util::sync::CancellationToken;
 
 /// Cancellation system for graceful interruption of operations
 #[derive(Clone)]
-pub struct GhostwriterCancellation {
+pub struct SmartRemarkableCancellation {
     /// Main cancellation token for the entire operation
     pub main_token: CancellationToken,
 
@@ -16,7 +16,7 @@ pub struct GhostwriterCancellation {
     pub config_changed_rx: watch::Receiver<bool>,
 }
 
-impl GhostwriterCancellation {
+impl SmartRemarkableCancellation {
     pub fn new() -> Self {
         let main_token = CancellationToken::new();
         let execution_token = Arc::new(Mutex::new(CancellationToken::new()));
@@ -83,7 +83,7 @@ impl GhostwriterCancellation {
     }
 }
 
-impl Default for GhostwriterCancellation {
+impl Default for SmartRemarkableCancellation {
     fn default() -> Self {
         Self::new()
     }
@@ -100,7 +100,7 @@ macro_rules! check_cancellation {
 }
 
 /// Helper for running operations with cancellation support
-pub async fn with_cancellation<F, T>(future: F, cancellation: &GhostwriterCancellation) -> anyhow::Result<T>
+pub async fn with_cancellation<F, T>(future: F, cancellation: &SmartRemarkableCancellation) -> anyhow::Result<T>
 where
     F: std::future::Future<Output = anyhow::Result<T>>,
 {

@@ -5,7 +5,7 @@ use std::sync::{Arc, Mutex};
 use tokio::sync::{mpsc, watch, Mutex as TokioMutex};
 use tokio::time::{sleep, Duration};
 
-use crate::cancellation::GhostwriterCancellation;
+use crate::cancellation::SmartRemarkableCancellation;
 use crate::config::Config;
 use crate::embedded_assets::load_config;
 use crate::keyboard::Keyboard;
@@ -87,7 +87,7 @@ impl Default for CoordinatorChannels {
 pub async fn trigger_task(
     touch: Arc<tokio::sync::RwLock<Touch>>,
     trigger_tx: mpsc::Sender<TriggerEvent>,
-    cancellation: Arc<GhostwriterCancellation>,
+    cancellation: Arc<SmartRemarkableCancellation>,
     no_trigger: bool,
     collect_taps: bool,
 ) -> Result<()> {
@@ -184,7 +184,7 @@ pub async fn trigger_task(
 
 /// Collect the four taps that define the selection box (what to answer)
 /// and the placement box (where to draw the answer): two opposite corners each.
-async fn collect_selection(touch: &mut Touch, cancellation: &GhostwriterCancellation) -> Result<TriggerEvent> {
+async fn collect_selection(touch: &mut Touch, cancellation: &SmartRemarkableCancellation) -> Result<TriggerEvent> {
     info!("Select mode: tap two corners of the handwriting to select");
     let sel_a = touch.wait_for_tap(cancellation).await?;
     let sel_b = touch.wait_for_tap(cancellation).await?;
@@ -200,7 +200,7 @@ async fn collect_selection(touch: &mut Touch, cancellation: &GhostwriterCancella
 }
 
 /// Task that monitors for cancel touch during processing
-pub async fn cancel_monitor_task(touch: Arc<tokio::sync::RwLock<Touch>>, cancellation: Arc<GhostwriterCancellation>) -> Result<()> {
+pub async fn cancel_monitor_task(touch: Arc<tokio::sync::RwLock<Touch>>, cancellation: Arc<SmartRemarkableCancellation>) -> Result<()> {
     info!("Cancel monitor task: starting");
 
     // Wait for any touch to cancel
@@ -226,7 +226,7 @@ pub async fn cancel_monitor_task(touch: Arc<tokio::sync::RwLock<Touch>>, cancell
 pub async fn progress_task(
     keyboard: Arc<Mutex<Keyboard>>,
     mut progress_rx: watch::Receiver<ProgressState>,
-    cancellation: Arc<GhostwriterCancellation>,
+    cancellation: Arc<SmartRemarkableCancellation>,
 ) -> Result<()> {
     info!("Progress task starting");
 
@@ -345,7 +345,7 @@ pub async fn processing_task(
     config: Config,
     engine: Arc<TokioMutex<Box<dyn LLMEngine>>>,
     progress_tx: watch::Sender<ProgressState>,
-    cancellation: Arc<GhostwriterCancellation>,
+    cancellation: Arc<SmartRemarkableCancellation>,
     touch: Arc<tokio::sync::RwLock<Touch>>,
     selection: Option<(Rect, Rect)>,
     placement_slot: Arc<Mutex<Option<Rect>>>,

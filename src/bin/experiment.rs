@@ -1,10 +1,10 @@
 use anyhow::Result;
 use clap::{Parser, Subcommand};
 use evdev::{Device, EventType as EvdevEventType, InputEvent};
-use ghostwriter::pen::Pen;
-use ghostwriter::screenshot::Screenshot;
-use ghostwriter::touch::{PenTool, Touch, TriggerCorner};
-use ghostwriter::util::{svg_to_alpha_bitmap, svg_to_bitmap, svg_to_bitmap_threshold};
+use smart_remarkable::pen::Pen;
+use smart_remarkable::screenshot::Screenshot;
+use smart_remarkable::touch::{PenTool, Touch, TriggerCorner};
+use smart_remarkable::util::{svg_to_alpha_bitmap, svg_to_bitmap, svg_to_bitmap_threshold};
 use std::thread::sleep as std_sleep;
 use std::time::Duration;
 use tokio::time::sleep;
@@ -38,7 +38,7 @@ fn virtual_to_touch(x: i32, y: i32) -> (i32, i32) {
 
 #[derive(Parser)]
 #[command(name = "experiment")]
-#[command(about = "Ghostwriter pen/touch experiment tool for reMarkable Paper Pro")]
+#[command(about = "Smart Remarkable pen/touch experiment tool for reMarkable Paper Pro")]
 struct Cli {
     #[command(subcommand)]
     command: Commands,

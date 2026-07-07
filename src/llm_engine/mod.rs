@@ -2,7 +2,7 @@ pub mod anthropic;
 pub mod google;
 pub mod openai;
 
-use crate::cancellation::GhostwriterCancellation;
+use crate::cancellation::SmartRemarkableCancellation;
 use anyhow::Result;
 use serde_json::Value as JsonValue;
 use std::collections::HashMap;
@@ -44,5 +44,5 @@ pub trait LLMEngine: Send {
     fn add_text_content(&mut self, text: &str);
     fn add_image_content(&mut self, base64_image: &str);
     fn clear_content(&mut self);
-    async fn execute(&mut self, cancellation: &GhostwriterCancellation, status_callback: Option<StatusCallback>) -> Result<()>;
+    async fn execute(&mut self, cancellation: &SmartRemarkableCancellation, status_callback: Option<StatusCallback>) -> Result<()>;
 }

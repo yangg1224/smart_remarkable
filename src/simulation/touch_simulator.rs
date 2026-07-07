@@ -1,5 +1,5 @@
 use super::{parse_duration, SimulationConfig, TouchEvent, TouchEventFile};
-use crate::cancellation::GhostwriterCancellation;
+use crate::cancellation::SmartRemarkableCancellation;
 use crate::touch::TriggerCorner;
 use anyhow::Result;
 use log::{debug, info};
@@ -63,7 +63,7 @@ impl TouchSimulator {
     }
 
     /// Wait for next trigger event (simulated)
-    pub async fn wait_for_trigger(&mut self, cancellation: &GhostwriterCancellation) -> Result<()> {
+    pub async fn wait_for_trigger(&mut self, cancellation: &SmartRemarkableCancellation) -> Result<()> {
         info!("TouchSimulator waiting for trigger (corner: {:?})", self.trigger_corner);
 
         loop {

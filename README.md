@@ -1,4 +1,4 @@
-# Ghostwriter
+# Smart Remarkable
 
 A Vision-LLM agent for the reMarkable tablet. It watches what you write, and
 when you trigger it, sends a screenshot to an LLM and draws (or types) the
@@ -32,20 +32,20 @@ device's IP and SSH password under Settings → Help → About.
 
 Grab a prebuilt binary from the
 [Releases page](https://github.com/yangg1224/smart_remarkable/releases/latest)
-on your computer (look for `ghostwriter-rm2` for the reMarkable 2, or
-`ghostwriter-rmpp` for the Paper Pro), then copy it to the device:
+on your computer (look for `smart_remarkable-rm2` for the reMarkable 2, or
+`smart_remarkable-rmpp` for the Paper Pro), then copy it to the device:
 
 ```sh
 # Copy it to the device (replace with your device's IP)
-scp ghostwriter-rmpp root@192.168.1.117:ghostwriter
+scp smart_remarkable-rmpp root@192.168.1.117:smart_remarkable
 ```
 
 Then SSH in and make it executable:
 
 ```sh
 ssh root@192.168.1.117
-chmod +x ./ghostwriter
-./ghostwriter --help
+chmod +x ./smart_remarkable
+./smart_remarkable --help
 ```
 
 > No release built yet, or want the latest changes? See
@@ -54,7 +54,7 @@ chmod +x ./ghostwriter
 
 ## LLM API key
 
-Ghostwriter needs an API key for whichever model provider you want to use.
+Smart Remarkable needs an API key for whichever model provider you want to use.
 You have two options — both are read on the **device**, not on your laptop:
 
 **Option A — environment variable.** Add it to the device's `~/.bashrc`, or
@@ -67,7 +67,7 @@ export GOOGLE_API_KEY=your-key-here      # for Gemini models
 ```
 
 **Option B — `.env` file.** Create a file named `.env` next to the
-`ghostwriter` binary on the device (e.g. `/home/root/.env`):
+`smart_remarkable` binary on the device (e.g. `/home/root/.env`):
 
 ```
 ANTHROPIC_API_KEY=your-key-here
@@ -85,11 +85,11 @@ etc.) with `--engine-base-url`.
 SSH into the reMarkable and run it:
 
 ```sh
-# Use the default model (claude-sonnet-4-0)
-./ghostwriter
+# Use the default model (claude-sonnet-4-6)
+./smart_remarkable
 
 # Use a specific model
-./ghostwriter --model gpt-4o-mini
+./smart_remarkable --model gpt-4o-mini
 ```
 
 Draw something on the screen, then **tap the upper-right corner with your
@@ -100,7 +100,7 @@ hand-drawn response.
 To run it in the background:
 
 ```sh
-nohup ./ghostwriter --model gpt-4o-mini &
+nohup ./smart_remarkable --model gpt-4o-mini &
 ```
 
 For select mode (lasso a question, get the answer drawn into a box), see
@@ -109,7 +109,7 @@ For select mode (lasso a question, get the answer drawn into a box), see
 ## CLI options
 
 **Models & engines**
-* `--model MODEL` — model to use (default: `claude-sonnet-4-0`)
+* `--model MODEL` — model to use (default: `claude-sonnet-4-6`)
 * `--engine ENGINE` — `openai`, `anthropic`, or `google` (auto-detected from model)
 * `--engine-api-key KEY` — API key (alternative to env vars / `.env`)
 * `--engine-base-url URL` — custom API base URL (e.g. for Groq, Azure, local proxies)
@@ -137,7 +137,7 @@ For select mode (lasso a question, get the answer drawn into a box), see
 * `--no-trigger` — disable the touch trigger
 * `--apply-segmentation` — add image segmentation for spatial awareness
 
-Run `./ghostwriter --help` on the device for the full, current list.
+Run `./smart_remarkable --help` on the device for the full, current list.
 
 ## Building from source
 

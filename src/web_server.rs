@@ -1,5 +1,5 @@
 use crate::config::Config;
-use crate::status::GhostwriterStatus;
+use crate::status::SmartRemarkableStatus;
 use crate::touch::{Touch, TriggerCorner};
 use anyhow::Result;
 use log::{info, warn};
@@ -21,9 +21,9 @@ const WEB_FILES: &[(&str, &str, &str)] = &[
 pub async fn start_web_server(
     port: u16,
     shared_config: Arc<TokioRwLock<Config>>,
-    shared_status: Arc<TokioRwLock<GhostwriterStatus>>,
+    shared_status: Arc<TokioRwLock<SmartRemarkableStatus>>,
     shared_touch: Option<Arc<TokioRwLock<Touch>>>,
-    cancellation: Option<Arc<TokioRwLock<crate::cancellation::GhostwriterCancellation>>>,
+    cancellation: Option<Arc<TokioRwLock<crate::cancellation::SmartRemarkableCancellation>>>,
     config_watch_tx: Option<Arc<tokio::sync::watch::Sender<Config>>>,
 ) -> Result<()> {
     info!("Starting web server on port {}", port);
@@ -135,7 +135,7 @@ async fn get_config_handler(shared_config: Arc<TokioRwLock<Config>>) -> Result<i
 async fn save_config_handler(
     config: Config,
     shared_config: Arc<TokioRwLock<Config>>,
-    cancellation: Option<Arc<TokioRwLock<crate::cancellation::GhostwriterCancellation>>>,
+    cancellation: Option<Arc<TokioRwLock<crate::cancellation::SmartRemarkableCancellation>>>,
     config_watch_tx: Option<Arc<tokio::sync::watch::Sender<Config>>>,
 ) -> Result<impl Reply, Rejection> {
     // Validate the config before saving
@@ -179,7 +179,7 @@ async fn save_config_handler(
     }
 }
 
-async fn get_status_handler(shared_status: Arc<TokioRwLock<GhostwriterStatus>>) -> Result<impl Reply, Rejection> {
+async fn get_status_handler(shared_status: Arc<TokioRwLock<SmartRemarkableStatus>>) -> Result<impl Reply, Rejection> {
     let status = shared_status.read().await;
     Ok(reply_json(&*status))
 }

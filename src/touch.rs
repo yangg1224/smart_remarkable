@@ -6,7 +6,7 @@ use log::{debug, info, trace};
 use std::time::Duration;
 use tokio::time::sleep;
 
-use crate::cancellation::GhostwriterCancellation;
+use crate::cancellation::SmartRemarkableCancellation;
 use crate::device::DeviceModel;
 use crate::screenshot::Screenshot;
 use crate::simulation::{SimulationConfig, TouchSimulator};
@@ -140,7 +140,7 @@ impl Touch {
         })
     }
 
-    pub async fn wait_for_trigger(&mut self, cancellation: &GhostwriterCancellation) -> Result<()> {
+    pub async fn wait_for_trigger(&mut self, cancellation: &SmartRemarkableCancellation) -> Result<()> {
         debug!("wait_for_trigger: entered, checking mode");
         match &mut self.mode {
             TouchMode::Simulated { simulator } => {
@@ -161,7 +161,7 @@ impl Touch {
         event_stream: &mut Option<EventStream>,
         device_model: &DeviceModel,
         trigger_corner: TriggerCorner,
-        cancellation: &GhostwriterCancellation,
+        cancellation: &SmartRemarkableCancellation,
     ) -> Result<()> {
         debug!("wait_for_real_trigger: entered");
         let mut position_x = 0;
@@ -258,7 +258,7 @@ impl Touch {
     /// Wait for the next finger tap and return its release position in
     /// virtual 768x1024 coordinates. Used by select mode to collect the
     /// corners of the selection and answer-placement boxes.
-    pub async fn wait_for_tap(&mut self, cancellation: &GhostwriterCancellation) -> Result<(i32, i32)> {
+    pub async fn wait_for_tap(&mut self, cancellation: &SmartRemarkableCancellation) -> Result<(i32, i32)> {
         match &mut self.mode {
             TouchMode::Simulated { .. } => Err(anyhow::anyhow!("wait_for_tap is not supported in simulation mode")),
             TouchMode::Real {
@@ -400,7 +400,7 @@ impl Touch {
     /// Sidebar tool icon y-centers (virtual 768×1024 coords, x≈28).
     /// Verified by screenshot analysis. All icons are at x≈28 when palette is open.
     const SIDEBAR_Y_PEN1: i32 = 80;   // Mechanical pencil (pen slot 1)
-    const SIDEBAR_Y_PEN2: i32 = 130;  // Fineliner (pen slot 2) — used by ghostwriter
+    const SIDEBAR_Y_PEN2: i32 = 130;  // Fineliner (pen slot 2) — used by smart_remarkable
     const SIDEBAR_Y_TEXT: i32 = 187;  // Text tool
     const SIDEBAR_Y_ERASER: i32 = 240;
     const SIDEBAR_X: i32 = 28;

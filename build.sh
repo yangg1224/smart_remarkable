@@ -9,11 +9,11 @@ elif [[ "$1" == rmpp* ]]; then
     cross build \
       --release \
       --target=aarch64-unknown-linux-gnu \
-      && scp target/aarch64-unknown-linux-gnu/release/ghostwriter root@$remarkable:
+      && scp target/aarch64-unknown-linux-gnu/release/smart_remarkable root@$remarkable:
 else
     cross build \
       --release \
       --target=armv7-unknown-linux-gnueabihf \
-      && scp target/armv7-unknown-linux-gnueabihf/release/ghostwriter root@$remarkable:
+      && scp target/armv7-unknown-linux-gnueabihf/release/smart_remarkable root@$remarkable:
 fi
 

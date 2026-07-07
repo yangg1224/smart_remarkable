@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) and other similar to
 
 ## Project Overview
 
-Ghostwriter is a Vision-LLM agent for the reMarkable tablet that watches handwritten input and responds by drawing or typing back to the screen. It takes screenshots, sends them to LLM APIs (OpenAI, Anthropic, Google), and uses the responses to interact with the device through simulated pen and keyboard input.
+Smart Remarkable is a Vision-LLM agent for the reMarkable tablet that watches handwritten input and responds by drawing or typing back to the screen. It takes screenshots, sends them to LLM APIs (OpenAI, Anthropic, Google), and uses the responses to interact with the device through simulated pen and keyboard input.
 
 ## Core Architecture
 
@@ -70,22 +70,22 @@ cargo check --all-targets --all-features
 ./run_eval.sh
 
 # Test with local input file (no device required)
-./target/release/ghostwriter \
+./target/release/smart_remarkable \
   --input-png evaluations/test_case/input.png \
   --output-file tmp/result.out \
   --save-bitmap tmp/result.png \
   --no-draw --no-loop --no-trigger
 
 # Run with specific model and options
-./ghostwriter --model gpt-4o-mini --apply-segmentation --thinking
+./smart_remarkable --model gpt-4o-mini --apply-segmentation --thinking
 ```
 
 ### Deployment
 ```bash
 # Deploy to reMarkable (replace IP address)
-scp target/armv7-unknown-linux-gnueabihf/release/ghostwriter root@192.168.1.117:
+scp target/armv7-unknown-linux-gnueabihf/release/smart_remarkable root@192.168.1.117:
 # or for Paper Pro
-scp target/aarch64-unknown-linux-gnu/release/ghostwriter root@192.168.1.117:
+scp target/aarch64-unknown-linux-gnu/release/smart_remarkable root@192.168.1.117:
 ```
 
 ## Key Development Notes
@@ -125,4 +125,4 @@ export GOOGLE_API_KEY=your-key-here
 - Touch trigger in upper-right corner activates the assistant
 - Progress indication through keyboard text and screen taps
 - Supports both SVG drawing (via pen simulation) and text output (via virtual keyboard)
-- Background execution supported with `nohup ./ghostwriter &`
+- Background execution supported with `nohup ./smart_remarkable &`

@@ -1,5 +1,5 @@
 use super::{status_update, LLMEngine, Tool};
-use crate::cancellation::{with_cancellation, GhostwriterCancellation};
+use crate::cancellation::{with_cancellation, SmartRemarkableCancellation};
 use crate::util::{option_or_env, option_or_env_fallback, OptionMap};
 use anyhow::Result;
 use log::debug;
@@ -71,7 +71,7 @@ impl LLMEngine for Google {
         self.content.clear();
     }
 
-    async fn execute(&mut self, cancellation: &GhostwriterCancellation, mut status_callback: Option<super::StatusCallback>) -> Result<()> {
+    async fn execute(&mut self, cancellation: &SmartRemarkableCancellation, mut status_callback: Option<super::StatusCallback>) -> Result<()> {
         let body = json!({
             "contents": [{
                 "role": "user",

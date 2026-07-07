@@ -42,7 +42,7 @@ test_case_params["gpt-5.2"]="--model gpt-5.2"
 # test_case_params["gemini-1.5-pro_no_seg"]="--model gemini-1.5-pro"
 # test_case_params["gemini-1.5-pro_with_seg"]="--apply-segmentation --model gemini-1.5-pro"
 
-echo "# Ghostwriter evaluation results $datetime" > $results
+echo "# Smart Remarkable evaluation results $datetime" > $results
 echo "" >> $results
 # how many scenarios are there
 scenario_count=${#scenarios[@]}
@@ -77,7 +77,7 @@ for scenario in "${scenarios[@]}"; do
 
       start_time=$(date +%s%N)
 
-      ./target/release/ghostwriter \
+      ./target/release/smart_remarkable \
         --input-png evaluations/$scenario/input.png \
         --save-screenshot $outdir/input.png \
         --model-output-file $outdir/result.json \

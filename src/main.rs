@@ -9,8 +9,8 @@ use tokio::sync::{Mutex as TokioMutex, RwLock as TokioRwLock};
 use std::time::Duration;
 use tokio::time::sleep;
 
-use ghostwriter::{
-    cancellation::GhostwriterCancellation,
+use smart_remarkable::{
+    cancellation::SmartRemarkableCancellation,
     config::Config,
     coordinator::{self, CoordinatorChannels, ProgressState},
     device::DeviceModel,
@@ -19,7 +19,7 @@ use ghostwriter::{
     llm_engine::{anthropic::Anthropic, google::Google, openai::OpenAI, LLMEngine},
     pen::Pen,
     simulation::SimulationConfig,
-    status::GhostwriterStatus,
+    status::SmartRemarkableStatus,
     touch::{PenTool, Rect, Touch, TriggerCorner},
     util::{build_svg_from_lines, fit_lines_to_rect, fit_svg_to_rect, setup_uinput, svg_to_bitmap, write_bitmap_to_file, OptionMap},
     web_server::start_web_server,
@@ -33,7 +33,7 @@ const VIRTUAL_HEIGHT: u32 = 1024;
 #[command(author, version)]
 #[command(about = "Vision-LLM Agent for the reMarkable2")]
 #[command(
-    long_about = "Ghostwriter is an exploration of how to interact with vision-LLM through the handwritten medium of the reMarkable2. It is a pluggable system; you can provide a custom prompt and custom 'tools' that the agent can use."
+    long_about = "This tool is an exploration of how to interact with vision-LLM through the handwritten medium of the reMarkable2. It is a pluggable system; you can provide a custom prompt and custom 'tools' that the agent can use."
 )]
 #[command(after_help = "See https://github.com/yangg1224/smart_remarkable for updates!")]
 pub struct Args {
@@ -139,7 +139,7 @@ pub struct Args {
     #[arg(long, default_value = "UR")]
     trigger_corner: String,
 
-    /// Save current configuration to ~/.ghostwriter.toml and exit
+    /// Save current configuration to ~/.smart_remarkable.toml and exit
     #[arg(long)]
     save_config: bool,
 
@@ -272,7 +272,7 @@ async fn main() -> Result<()> {
         return Ok(());
     }
 
-    ghostwriter(&args).await
+    smart_remarkable(&args).await
 }
 
 /// Debug helper: exercise the text-tool + virtual-keyboard output path in
@@ -369,7 +369,7 @@ fn create_engine(engine_name: &str, engine_options: &OptionMap) -> Result<Box<dy
     }
 }
 
-async fn ghostwriter(args: &Args) -> Result<()> {
+async fn smart_remarkable(args: &Args) -> Result<()> {
     let mut config = Config::load(args)?;
 
     // Parse test_mode device model if provided
@@ -394,7 +394,7 @@ async fn ghostwriter(args: &Args) -> Result<()> {
 
     // Create shared state for live config updates
     let shared_config = Arc::new(TokioRwLock::new(config.clone()));
-    let shared_status = Arc::new(TokioRwLock::new(GhostwriterStatus::default()));
+    let shared_status = Arc::new(TokioRwLock::new(SmartRemarkableStatus::default()));
 
     // Create Touch component for web API and main loop
     let trigger_corner = TriggerCorner::from_string(&config.trigger_corner)?;
@@ -412,7 +412,7 @@ async fn ghostwriter(args: &Args) -> Result<()> {
 
     // Create cancellation holder to be updated on each restart
     // We use Arc<TokioRwLock> so web server can read current cancellation
-    let shared_cancellation = Arc::new(TokioRwLock::new(GhostwriterCancellation::new()));
+    let shared_cancellation = Arc::new(TokioRwLock::new(SmartRemarkableCancellation::new()));
 
     // Create config watch channel for communication between web server and main loop
     let (config_watch_tx, config_watch_rx) = tokio::sync::watch::channel(config.clone());
@@ -442,12 +442,12 @@ async fn ghostwriter(args: &Args) -> Result<()> {
         None
     };
 
-    // Run main ghostwriter logic, restarting on config changes
+    // Run main smart_remarkable logic, restarting on config changes
     // Keep a single receiver across iterations to avoid spurious change notifications
     let mut persistent_config_watch_rx = config_watch_rx.clone();
     let result = loop {
         // Create fresh cancellation for each iteration
-        let cancellation = Arc::new(GhostwriterCancellation::new());
+        let cancellation = Arc::new(SmartRemarkableCancellation::new());
 
         // Update shared cancellation for web server
         if args.web_server {
@@ -455,7 +455,7 @@ async fn ghostwriter(args: &Args) -> Result<()> {
             *shared_cancel = (*cancellation).clone();
         }
 
-        match run_ghostwriter_loop(
+        match run_smart_remarkable_loop(
             Arc::clone(&shared_config),
             Arc::clone(&shared_status),
             shared_touch.as_ref().map(Arc::clone),
@@ -465,7 +465,7 @@ async fn ghostwriter(args: &Args) -> Result<()> {
         .await
         {
             Ok(()) => {
-                info!("Ghostwriter loop exited normally, restarting to pick up config changes...");
+                info!("Smart Remarkable loop exited normally, restarting to pick up config changes...");
                 continue; // Restart the loop
             }
             Err(e) => {
@@ -482,14 +482,14 @@ async fn ghostwriter(args: &Args) -> Result<()> {
     result
 }
 
-async fn run_ghostwriter_loop(
+async fn run_smart_remarkable_loop(
     shared_config: Arc<TokioRwLock<Config>>,
-    _shared_status: Arc<TokioRwLock<GhostwriterStatus>>,
+    _shared_status: Arc<TokioRwLock<SmartRemarkableStatus>>,
     shared_touch: Option<Arc<TokioRwLock<Touch>>>,
-    cancellation: Arc<GhostwriterCancellation>,
+    cancellation: Arc<SmartRemarkableCancellation>,
     config_watch_rx: &mut tokio::sync::watch::Receiver<Config>,
 ) -> Result<()> {
-    info!("Starting ghostwriter with new coordinator architecture");
+    info!("Starting smart_remarkable with new coordinator architecture");
 
     // Get initial config
     let config = shared_config.read().await.clone();
@@ -518,7 +518,7 @@ async fn run_ghostwriter_loop(
         // Position the text cursor for progress typing. Skipped in select
         // mode: this tap dismisses an active selection marquee.
         touch.write().await.tap_middle_bottom().await?;
-        lock!(keyboard).progress("Ghostwriter starting...")?;
+        lock!(keyboard).progress("Smart Remarkable starting...")?;
         sleep(Duration::from_millis(1000)).await;
         lock!(keyboard).progress_end()?;
     }

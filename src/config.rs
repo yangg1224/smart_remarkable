@@ -89,8 +89,8 @@ impl Config {
             .merge(Serialized::defaults(Config::default()))
             // Then layer in TOML config file (if it exists)
             .merge(Toml::file(Self::config_path()?))
-            // Then environment variables (GHOSTWRITER_MODEL, etc.)
-            .merge(Env::prefixed("GHOSTWRITER_"))
+            // Then environment variables (SMART_REMARKABLE_MODEL, etc.)
+            .merge(Env::prefixed("SMART_REMARKABLE_"))
             // Finally CLI arguments (highest precedence)
             .merge(Serialized::globals(args))
             .extract()
@@ -113,10 +113,10 @@ impl Config {
         Ok(())
     }
 
-    /// Get the config file path: ~/.ghostwriter.toml
+    /// Get the config file path: ~/.smart_remarkable.toml
     pub fn config_path() -> Result<std::path::PathBuf> {
         let home = std::env::var("HOME").map_err(|_| anyhow::anyhow!("HOME environment variable not set"))?;
-        Ok(std::path::Path::new(&home).join(".ghostwriter.toml"))
+        Ok(std::path::Path::new(&home).join(".smart_remarkable.toml"))
     }
 
     /// Validate the configuration and return any errors

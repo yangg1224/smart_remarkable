@@ -1,5 +1,5 @@
 #[derive(Debug, Clone, serde::Serialize)]
-pub struct GhostwriterStatus {
+pub struct SmartRemarkableStatus {
     pub running: bool,
     pub waiting_for_trigger: bool,
     pub processing: bool,
@@ -11,7 +11,7 @@ pub struct GhostwriterStatus {
     pub current_prompt: String,
 }
 
-impl Default for GhostwriterStatus {
+impl Default for SmartRemarkableStatus {
     fn default() -> Self {
         Self {
             running: false,
