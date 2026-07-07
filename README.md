@@ -4,11 +4,7 @@ A Vision-LLM agent for the reMarkable tablet. It watches what you write, and
 when you trigger it, sends a screenshot to an LLM and draws (or types) the
 response back onto the screen.
 
-<img src="docs/simple-chihuahua.jpg" width="300"><img src="docs/chihuahua-logo.png" width="300">
-
-<b><i>Handwritten prompt by a human, chihuahua drawn by GPT-4o.</i></b>
-
-<img src="docs/example-kansas.gif">
+<video src="docs/select-mode-demo.mp4" controls width="400"></video>
 
 It also has a **Select Mode**: lasso a region of handwriting, get an LLM
 answer drawn into a box you choose. Because the answer is real pen strokes,
