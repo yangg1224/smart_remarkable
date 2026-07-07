@@ -4,6 +4,8 @@ A Vision-LLM agent for the reMarkable tablet. It watches what you write, and
 when you trigger it, sends a screenshot to an LLM and draws (or types) the
 response back onto the screen.
 
+This project is a fork of [awwaiid/ghostwriter](https://github.com/awwaiid/ghostwriter), extended with Select Mode.
+
 <video src="docs/select-mode-demo.mp4" controls width="400"></video>
 
 It also has a **Select Mode**: lasso a region of handwriting, get an LLM
@@ -187,6 +189,8 @@ see `build.sh`). Copy the resulting binary to your device with `scp`, as in
 MIT — see [LICENSE](LICENSE).
 
 ## Credits
+
+Forked from [awwaiid/ghostwriter](https://github.com/awwaiid/ghostwriter).
 
 References this project has drawn from:
 * [Awesome reMarkable](https://github.com/reHackable/awesome-reMarkable)
