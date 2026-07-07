@@ -6,7 +6,9 @@ response back onto the screen.
 
 This project is a fork of [awwaiid/ghostwriter](https://github.com/awwaiid/ghostwriter), extended with Select Mode.
 
-<video src="https://raw.githubusercontent.com/yangg1224/smart_remarkable/main/docs/select-mode-demo.mp4" controls width="400"></video>
+[<img src="docs/select-mode-demo-thumb.jpg" width="300">](https://github.com/yangg1224/smart_remarkable/blob/main/docs/select-mode-demo.mp4)
+
+<sub>&#9654; Click to watch the demo video</sub>
 
 It also has a **Select Mode**: lasso a region of handwriting, get an LLM
 answer drawn into a box you choose. Because the answer is real pen strokes,
