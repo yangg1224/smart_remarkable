@@ -1,0 +1,50 @@
+[package]
+name = "ghostwriter"
+version = "0.4.0"
+edition = "2021"
+
+[dependencies]
+tokio = { version = "1.28", features = ["full"] }
+ureq = { version = "3.0", features = ["json"] }
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
+tokio-util = "0.7"
+tokio-stream = "0.1"
+async-trait = "0.1"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+anyhow = "1.0"
+base64 = "0.22"
+image = "0.25.5"
+byteorder = "1.4"
+clap = { version = "4.0", features = ["derive"] }
+evdev = { version = "0.13", features = ["tokio"] }
+resvg = "0.47"
+svg2polylines = "0.8"
+dotenv = "0.15"
+imageproc = "0.25.0"
+rust-embed = { version = "8.5.0", features = ["include-exclude", "compression"] }
+env_logger = "0.11.6"
+log = "0.4.22"
+figment = { version = "0.10", features = ["toml", "env"] }
+toml = "0.8"
+warp = "0.3"
+
+[dev-dependencies]
+clippy = "0.0.302"
+
+[lib]
+name = "ghostwriter"
+path = "src/lib.rs"
+
+[[bin]]
+name = "ghostwriter"
+path = "src/main.rs"
+
+[[bin]]
+name = "experiment"
+path = "src/bin/experiment.rs"
+
+[profile.release]
+# strip = true  # Automatically strip symbols from the binary.
+# opt-level = "z"  # Optimize for size.
+# lto = true

@@ -1,0 +1,11 @@
+# [target.armv7-unknown-linux-gnueabihf]
+# linker = "<toolchain_install_path>/sysroots/x86_64-codexsdk-linux/usr/bin/arm-remarkable-linux-gnueabi/arm-remarkable-linux-gnueabi-gcc"
+# rustflags = [
+#   "-C", "link-arg=-march=armv7-a",
+#   "-C", "link-arg=-marm",
+#   "-C", "link-arg=-mfpu=neon",
+#   "-C", "link-arg=-mfloat-abi=hard",
+#   "-C", "link-arg=-mcpu=cortex-a9",
+#   "-C", "link-arg=--sysroot=<toolchain_install_path>/sysroots/cortexa7hf-neon-remarkable-linux-gnueabi",
+# ]
+

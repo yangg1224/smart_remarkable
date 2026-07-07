@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="768" height="1024">
+  <!-- X in top left box -->
+  <path d="M160,144 L239,237 M239,144 L160,237" stroke="black" stroke-width="2" fill="none"/>
+  
+  <!-- X in top right box -->
+  <path d="M549,142 L598,215 M598,142 L549,215" stroke="black" stroke-width="2" fill="none"/>
+  
+  <!-- X in bottom box -->
+  <path d="M297,1232 L466,1415 M466,1232 L297,1415" stroke="black" stroke-width="2" fill="none"/>
+</svg>

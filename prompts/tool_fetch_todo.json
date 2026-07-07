@@ -1,0 +1,6 @@
+{
+  "name": "fetch_todo",
+  "description": "Use an API to fetch the current TODO list",
+  "external_command": "tools/fetch_todo.sh",
+  "next_action": "loop"
+}

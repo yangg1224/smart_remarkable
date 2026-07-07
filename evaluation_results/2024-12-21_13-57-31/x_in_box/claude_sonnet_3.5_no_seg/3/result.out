@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="768" height="1024">
+    <path d="M 300 400 L 500 600 M 500 400 L 300 600" 
+          stroke="black" 
+          stroke-width="2" 
+          fill="none"/>
+</svg>

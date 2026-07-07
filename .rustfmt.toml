@@ -1,0 +1,14 @@
+max_width = 160
+hard_tabs = false
+tab_spaces = 4
+newline_style = "Unix"
+use_small_heuristics = "Default"
+reorder_imports = true
+reorder_modules = true
+remove_nested_parens = true
+fn_params_layout = "Tall"
+merge_derives = true
+use_try_shorthand = false
+use_field_init_shorthand = false
+force_explicit_abi = true
+edition = "2021"

@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="768" height="1024">
+  <!-- X for top-left box -->
+  <path d="M170 154 L229 227 M229 154 L170 227" stroke="black" stroke-width="2" fill="none"/>
+  
+  <!-- X for top-right box -->
+  <path d="M559 152 L588 205 M588 152 L559 205" stroke="black" stroke-width="2" fill="none"/>
+  
+  <!-- X for bottom box -->
+  <path d="M307 1242 L456 1405 M456 1242 L307 1405" stroke="black" stroke-width="2" fill="none"/>
+</svg>

@@ -1,0 +1,18 @@
+{
+  "name": "draw_answer",
+  "description": "Draw a short answer to the screen as a list of lines. Do not compute any coordinates or SVG yourself — just provide the text content, one entry per line, in the order they should appear top to bottom. The app lays them out for you.",
+  "internal_command": "draw_answer",
+  "parameters": {
+    "type": "object",
+    "properties": {
+      "lines": {
+        "type": "array",
+        "description": "The answer as a list of lines, top to bottom. Each entry is one line of plain text. Up to 8 lines, keep each to at most 26 characters. Beyond 8 lines (up to 14 total) the app switches to a smaller font, so keep each line to at most 32 characters. Prefix bullet lines with '- '. Do not include markdown, coordinates, or styling.",
+        "items": {
+          "type": "string"
+        }
+      }
+    },
+    "required": ["lines"]
+  }
+}

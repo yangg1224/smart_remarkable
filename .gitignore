@@ -1,0 +1,6 @@
+/target
+/tmp
+/.env
+.aider*
+
+**/.claude/settings.local.json

@@ -1,0 +1,219 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Ghostwriter Configuration</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>Ghostwriter Configuration</h1>
+            <p>Configure your Vision-LLM Agent for reMarkable</p>
+        </header>
+
+        <main>
+            <div class="status" id="status"></div>
+
+            <section class="live-status-section">
+                <h2>Live Status</h2>
+                <div class="status-grid">
+                    <div class="status-item">
+                        <label>Status:</label>
+                        <span id="running-status" class="status-value">Loading...</span>
+                    </div>
+                    <div class="status-item">
+                        <label>Model:</label>
+                        <span id="current-model" class="status-value">Loading...</span>
+                    </div>
+                    <div class="status-item">
+                        <label>Prompt:</label>
+                        <span id="current-prompt" class="status-value">Loading...</span>
+                    </div>
+                    <div class="status-item">
+                        <label>Uptime:</label>
+                        <span id="uptime" class="status-value">Loading...</span>
+                    </div>
+                    <div class="status-item">
+                        <label>Executions:</label>
+                        <span id="executions-count" class="status-value">Loading...</span>
+                    </div>
+                    <div class="status-item">
+                        <label>Last Activity:</label>
+                        <span id="last-activity" class="status-value">Loading...</span>
+                    </div>
+                </div>
+            </section>
+
+            <form id="config-form">
+                <section class="settings-section">
+                    <h2>Core Settings</h2>
+
+                    <div class="form-group">
+                        <label for="model">Model:</label>
+                        <input type="text" id="model" name="model" placeholder="claude-sonnet-4-0">
+                    </div>
+
+                    <div class="form-group">
+                        <label for="prompt">Prompt:</label>
+                        <input type="text" id="prompt" name="prompt" placeholder="general.json">
+                    </div>
+
+                    <div class="form-group">
+                        <label for="engine">Engine:</label>
+                        <select id="engine" name="engine">
+                            <option value="">Auto-detect</option>
+                            <option value="openai">OpenAI</option>
+                            <option value="anthropic">Anthropic</option>
+                            <option value="google">Google</option>
+                        </select>
+                    </div>
+
+                    <div class="form-group">
+                        <label for="engine_base_url">Engine Base URL:</label>
+                        <input type="url" id="engine_base_url" name="engine_base_url" placeholder="Optional custom API endpoint">
+                    </div>
+
+                    <div class="form-group">
+                        <label for="engine_api_key">Engine API Key:</label>
+                        <input type="password" id="engine_api_key" name="engine_api_key" placeholder="API key (optional if using env vars)">
+                    </div>
+                </section>
+
+                <section class="settings-section">
+                    <h2>Behavior Settings</h2>
+
+                    <div class="form-group">
+                        <label for="trigger_corner">Trigger Corner:</label>
+                        <select id="trigger_corner" name="trigger_corner">
+                            <option value="UR">Upper Right</option>
+                            <option value="UL">Upper Left</option>
+                            <option value="LR">Lower Right</option>
+                            <option value="LL">Lower Left</option>
+                        </select>
+                    </div>
+
+                    <div class="form-group">
+                        <label for="log_level">Log Level:</label>
+                        <select id="log_level" name="log_level">
+                            <option value="error">Error</option>
+                            <option value="warn">Warn</option>
+                            <option value="info">Info</option>
+                            <option value="debug">Debug</option>
+                            <option value="trace">Trace</option>
+                        </select>
+                    </div>
+
+                    <div class="form-group">
+                        <label for="thinking_tokens">Thinking Tokens:</label>
+                        <input type="number" id="thinking_tokens" name="thinking_tokens" min="1" placeholder="5000">
+                    </div>
+                </section>
+
+                <section class="settings-section">
+                    <h2>Feature Toggles</h2>
+
+                    <div class="checkbox-group">
+                        <label class="checkbox-label">
+                            <input type="checkbox" id="no_submit" name="no_submit">
+                            <span class="checkmark"></span>
+                            No Submit (testing mode)
+                        </label>
+
+                        <label class="checkbox-label">
+                            <input type="checkbox" id="no_draw" name="no_draw">
+                            <span class="checkmark"></span>
+                            No Draw (skip output rendering)
+                        </label>
+
+                        <label class="checkbox-label">
+                            <input type="checkbox" id="no_svg" name="no_svg">
+                            <span class="checkmark"></span>
+                            No SVG (disable SVG drawing tool)
+                        </label>
+
+                        <label class="checkbox-label">
+                            <input type="checkbox" id="no_keyboard" name="no_keyboard">
+                            <span class="checkmark"></span>
+                            No Keyboard (disable text output)
+                        </label>
+
+                        <label class="checkbox-label">
+                            <input type="checkbox" id="no_draw_progress" name="no_draw_progress">
+                            <span class="checkmark"></span>
+                            No Draw Progress (hide progress indicators)
+                        </label>
+
+                        <label class="checkbox-label">
+                            <input type="checkbox" id="no_loop" name="no_loop">
+                            <span class="checkmark"></span>
+                            No Loop (single execution)
+                        </label>
+
+                        <label class="checkbox-label">
+                            <input type="checkbox" id="no_trigger" name="no_trigger">
+                            <span class="checkmark"></span>
+                            No Trigger (immediate execution)
+                        </label>
+
+                        <label class="checkbox-label">
+                            <input type="checkbox" id="apply_segmentation" name="apply_segmentation">
+                            <span class="checkmark"></span>
+                            Apply Segmentation
+                        </label>
+
+                        <label class="checkbox-label">
+                            <input type="checkbox" id="web_search" name="web_search">
+                            <span class="checkmark"></span>
+                            Web Search (Anthropic models)
+                        </label>
+
+                        <label class="checkbox-label">
+                            <input type="checkbox" id="thinking" name="thinking">
+                            <span class="checkmark"></span>
+                            Thinking (Anthropic models)
+                        </label>
+                    </div>
+                </section>
+
+                <section class="settings-section">
+                    <h2>File Paths</h2>
+
+                    <div class="form-group">
+                        <label for="input_png">Input PNG:</label>
+                        <input type="text" id="input_png" name="input_png" placeholder="Optional input file for testing">
+                    </div>
+
+                    <div class="form-group">
+                        <label for="output_file">Output File:</label>
+                        <input type="text" id="output_file" name="output_file" placeholder="Optional output file">
+                    </div>
+
+                    <div class="form-group">
+                        <label for="model_output_file">Model Output File:</label>
+                        <input type="text" id="model_output_file" name="model_output_file" placeholder="Optional model output file">
+                    </div>
+
+                    <div class="form-group">
+                        <label for="save_screenshot">Save Screenshot:</label>
+                        <input type="text" id="save_screenshot" name="save_screenshot" placeholder="Optional screenshot save path">
+                    </div>
+
+                    <div class="form-group">
+                        <label for="save_bitmap">Save Bitmap:</label>
+                        <input type="text" id="save_bitmap" name="save_bitmap" placeholder="Optional bitmap save path">
+                    </div>
+                </section>
+
+                <div class="form-actions">
+                    <button type="button" id="load-btn" class="btn btn-secondary">Load Settings</button>
+                    <button type="submit" class="btn btn-primary">Save Settings</button>
+                </div>
+            </form>
+        </main>
+    </div>
+
+    <script src="app.js"></script>
+</body>
+</html>

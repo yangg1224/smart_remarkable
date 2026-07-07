@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="768" height="1024" viewBox="0 0 768 1024">
+  <!-- Left box X -->
+  <path d="M145,568 L473,861 M473,568 L145,861" stroke="black" stroke-width="2" fill="none"/>
+  
+  <!-- Right box X -->
+  <path d="M831,763 L1152,1075 M1152,763 L831,1075" stroke="black" stroke-width="2" fill="none"/>
+  
+  <!-- Bottom box X -->
+  <path d="M317,1252 L446,1395 M446,1252 L317,1395" stroke="black" stroke-width="2" fill="none"/>
+</svg>

@@ -1,0 +1,27 @@
+{
+  "name": "draw_text",
+  "description": "Draw text to the screen using simulated keyboard input. The input_description and output_description are used to build a plan for the actual output.",
+  "internal_command": "draw_text",
+  "parameters": {
+    "type": "object",
+    "properties": {
+      "input_description": {
+        "type": "string",
+        "description": "Description of what was detected in the input image. Include the x,y,w,h bounding box coordinates of interesting regions."
+      },
+      "output_description": {
+        "type": "string",
+        "description": "Description of what will be output. Include x,y,w,h bounding box coordinates of specific regions."
+      },
+      "text": {
+        "type": "string",
+        "description": "Text to be written"
+      }
+    },
+    "required": [
+      "input_description",
+      "output_description",
+      "text"
+    ]
+  }
+}
