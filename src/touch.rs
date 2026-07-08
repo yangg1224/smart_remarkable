@@ -51,6 +51,13 @@ impl TriggerCorner {
 const VIRTUAL_WIDTH: u16 = 768;
 const VIRTUAL_HEIGHT: u16 = 1024;
 
+/// Written by the xovi `llmbutton` extension (xovi-ext/llmbutton/main.c) when the
+/// injected "LLM" button beside xochitl's selection menu is tapped. Deleted here once
+/// consumed, matching the extension's own file-trigger-is-an-ack convention. This is an
+/// additional trigger source alongside the four-finger gesture, not a replacement for
+/// it -- see SELECT_MODE.md.
+const LLM_BUTTON_TRIGGER_FILE: &str = "/tmp/llm_button_trigger";
+
 // Event codes
 const ABS_MT_SLOT: u16 = 47;
 const ABS_MT_TOUCH_MAJOR: u16 = 48;
@@ -120,6 +127,10 @@ impl Touch {
             (Some(input_dev), Some(stream))
         };
 
+        // Never act on a trigger file left over from a previous run (matches the xovi
+        // extension's own "unlink stale triggers on load" convention).
+        let _ = std::fs::remove_file(LLM_BUTTON_TRIGGER_FILE);
+
         Self {
             mode: TouchMode::Real {
                 input_device,
@@ -187,6 +198,14 @@ impl Touch {
                         debug!("wait_for_real_trigger: cancellation detected");
                         debug!("Touch waiting cancelled due to shutdown");
                         return Err(anyhow::anyhow!("Touch waiting cancelled"));
+                    }
+
+                    // Poll for the LLM button's trigger file (independent of trigger_corner)
+                    _ = sleep(Duration::from_millis(150)) => {
+                        if std::fs::remove_file(LLM_BUTTON_TRIGGER_FILE).is_ok() {
+                            debug!("LLM button trigger file detected");
+                            return Ok(());
+                        }
                     }
 
                     // Wait for next event
