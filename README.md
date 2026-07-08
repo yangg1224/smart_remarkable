@@ -13,10 +13,11 @@ answer drawn into a box you choose. Because the answer is real pen strokes,
 you can afterwards move and resize it with reMarkable's own selection tool.
 See [SELECT_MODE.md](SELECT_MODE.md) for details.
 
-**New:** an **LLM button** is now injected directly into xochitl's native
-selection toolbar (via the bundled `xovi-ext/llmbutton` extension), so you
-can trigger Select Mode from the same contextual menu you already use to
-lasso — no separate corner tap needed. See
+**New: LLM button.** When you lasso text with reMarkable's own selection
+tool, an **LLM** button now shows up right beside the usual cut/copy/paste
+menu — tap it to kick off Select Mode on that selection, no corner tap or
+gesture required. It's added by a small extension
+(`xovi-ext/llmbutton`) that hooks into xochitl's UI. See
 [SELECT_MODE.md](SELECT_MODE.md) for details.
 
 ## Contents
