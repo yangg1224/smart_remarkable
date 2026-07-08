@@ -22,6 +22,14 @@ gesture required. It's added by a small extension
 
 <img src="docs/llm-button.jpeg" width="300">
 
+**New: Draw button.** A second button, **Draw**, sits right beside the LLM
+button (same extension). Lasso a region and tap it instead of LLM: if the
+selection is mostly handwritten/typed text, it sketches a small pencil-scratch
+doodle illustrating what you wrote, drawn below the selection; if the
+selection is already a drawing or sketch, it erases the original and redraws
+an improved, more detailed version of it in the same spot. See
+[SELECT_MODE.md](SELECT_MODE.md) for details.
+
 ## Contents
 
 - [Install](#install)

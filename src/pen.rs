@@ -9,6 +9,7 @@ use std::thread::sleep;
 use std::time::Duration;
 
 use crate::device::DeviceModel;
+use crate::touch::Rect;
 
 // Output dimensions remain the same for both devices
 const VIRTUAL_WIDTH: u32 = 768;
@@ -64,6 +65,34 @@ impl Pen {
 
         self.pen_up()?;
 
+        Ok(())
+    }
+
+    /// Erase existing ink within `rect` by sweeping horizontal passes across
+    /// it using BTN_TOOL_RUBBER strokes (see `draw_line_rubber_screen`).
+    /// Confirmed on-device (2026-07-08): selecting the on-screen eraser
+    /// toolbar icon and then stroking with the normal BTN_TOOL_PEN signal
+    /// does NOT erase anything, no matter which toolbar tool is active --
+    /// xochitl only erases in response to the pen's actual hardware
+    /// eraser-tip signal (BTN_TOOL_RUBBER), which also means no toolbar
+    /// tool switch is needed at all before calling this.
+    pub fn erase_rect(&mut self, rect: Rect) -> Result<()> {
+        const ROW_SPACING: i32 = 10;
+        let margin = ROW_SPACING; // erase slightly past the lassoed box's edges
+        let x1 = rect.x - margin;
+        let x2 = rect.x + rect.w + margin;
+        let y_top = rect.y - margin;
+        let y_bottom = rect.y + rect.h + margin;
+
+        let mut y = y_top;
+        let mut left_to_right = true;
+        while y <= y_bottom {
+            let (from, to) = if left_to_right { ((x1, y), (x2, y)) } else { ((x2, y), (x1, y)) };
+            self.draw_line_rubber_screen(from, to)?;
+            left_to_right = !left_to_right;
+            y += ROW_SPACING;
+        }
+        info!("erase_rect: erased {:?}", rect);
         Ok(())
     }
 
@@ -180,6 +209,63 @@ impl Pen {
 
     pub fn goto_xy_virtual(&mut self, point: (i32, i32)) -> Result<()> {
         self.goto_xy(self.virtual_to_input(point))
+    }
+
+    // --- diagnostic: BTN_TOOL_RUBBER (321) instead of BTN_TOOL_PEN (320) ---
+    // Some styluses report a physical eraser-tip flip as a genuinely distinct
+    // hardware tool type, separate from the on-screen toolbar tool selection.
+    // Used to test whether xochitl's eraser needs this signal rather than
+    // (or in addition to) the toolbar eraser tool being selected.
+    fn rubber_down_at(&mut self, (x, y): (i32, i32)) -> Result<()> {
+        if let Some(device) = &mut self.device {
+            device.send_events(&[
+                InputEvent::new(EvdevEventType::ABSOLUTE.0, 0, x),
+                InputEvent::new(EvdevEventType::ABSOLUTE.0, 1, y),
+                InputEvent::new(EvdevEventType::KEY.0, 321, 1), // BTN_TOOL_RUBBER
+                InputEvent::new(EvdevEventType::KEY.0, 330, 0), // BTN_TOUCH (not yet)
+                InputEvent::new(EvdevEventType::ABSOLUTE.0, 24, 0),
+                InputEvent::new(EvdevEventType::ABSOLUTE.0, 25, 100),
+                InputEvent::new(EvdevEventType::SYNCHRONIZATION.0, 0, 0),
+            ])?;
+            device.send_events(&[
+                InputEvent::new(EvdevEventType::KEY.0, 330, 1), // BTN_TOUCH
+                InputEvent::new(EvdevEventType::ABSOLUTE.0, 24, 2630),
+                InputEvent::new(EvdevEventType::ABSOLUTE.0, 25, 0),
+                InputEvent::new(EvdevEventType::SYNCHRONIZATION.0, 0, 0),
+            ])?;
+        }
+        Ok(())
+    }
+
+    fn rubber_up(&mut self) -> Result<()> {
+        if let Some(device) = &mut self.device {
+            device.send_events(&[
+                InputEvent::new(EvdevEventType::ABSOLUTE.0, 24, 0),
+                InputEvent::new(EvdevEventType::ABSOLUTE.0, 25, 100),
+                InputEvent::new(EvdevEventType::KEY.0, 330, 0),
+                InputEvent::new(EvdevEventType::KEY.0, 321, 0), // BTN_TOOL_RUBBER off
+                InputEvent::new(EvdevEventType::SYNCHRONIZATION.0, 0, 0),
+            ])?;
+        }
+        Ok(())
+    }
+
+    pub fn draw_line_rubber_screen(&mut self, p1: (i32, i32), p2: (i32, i32)) -> Result<()> {
+        self.draw_line_rubber(self.virtual_to_input(p1), self.virtual_to_input(p2))
+    }
+
+    fn draw_line_rubber(&mut self, (x1, y1): (i32, i32), (x2, y2): (i32, i32)) -> Result<()> {
+        let length = ((x2 as f32 - x1 as f32).powi(2) + (y2 as f32 - y1 as f32).powi(2)).sqrt();
+        let steps = (length / 5.0).ceil() as i32;
+        self.rubber_down_at((x1, y1))?;
+        for i in 0..=steps {
+            let t = i as f32 / steps as f32;
+            let x = (x1 as f32 + (x2 - x1) as f32 * t).round() as i32;
+            let y = (y1 as f32 + (y2 - y1) as f32 * t).round() as i32;
+            self.goto_xy((x, y))?;
+        }
+        self.rubber_up()?;
+        Ok(())
     }
 
     pub fn goto_xy(&mut self, (x, y): (i32, i32)) -> Result<()> {

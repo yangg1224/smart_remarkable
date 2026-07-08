@@ -52,6 +52,7 @@ typedef void* (*qmlcontext_fn)(const void*);   // qmlContext(QObject*) -> QQmlCo
 typedef void  (*qcomp_ctor_fn)(void*, void*, void*);                   // QQmlComponent(engine, parent)
 typedef void  (*qcomp_setdata_fn)(void*, const void*, const void*);    // setData(QByteArray, QUrl)
 typedef void* (*qcomp_create_fn)(void*, void*);                        // create(QQmlContext*)
+typedef int   (*qcomp_status_fn)(const void*);                         // QQmlComponent::status() -> enum (Null=0,Ready=1,Loading=2,Error=3)
 typedef void  (*qba_ctor_fn)(void*, const char*, long);                // QByteArray(const char*, qsizetype)
 typedef void  (*qurl_ctor_fn)(void*);                                  // QUrl()
 typedef void  (*qurl_dtor_fn)(void*);
@@ -74,6 +75,7 @@ static qmlcontext_fn    p_qmlcontext;
 static qcomp_ctor_fn    p_qcomp_ctor;
 static qcomp_setdata_fn p_qcomp_setdata;
 static qcomp_create_fn  p_qcomp_create;
+static qcomp_status_fn  p_qcomp_status;
 static qba_ctor_fn      p_qba_ctor;
 static qurl_ctor_fn     p_qurl_ctor;
 static qurl_dtor_fn     p_qurl_dtor;
@@ -200,29 +202,76 @@ static const char *LLM_QML =
     "  }\n"
     "}\n";
 
-#define LLM_TRIGGER_FILE "/tmp/llm_button_trigger"
+// Sibling of LLM_QML: same shape, a different mark/tapped property pair
+// (drawMark/drawTapped) so the two buttons' identity checks never collide,
+// and a different label. Placed one button-width + gap further right.
+static const char *DRAW_QML =
+    "import QtQuick\n"
+    "Rectangle {\n"
+    "  property bool drawMark: true\n"
+    "  property bool drawTapped: false\n"
+    "  width: 84; height: 84\n"
+    "  color: \"white\"\n"
+    "  border.color: \"black\"; border.width: 2\n"
+    "  Text { anchors.centerIn: parent; text: \"Draw\"; font.pixelSize: 20; font.bold: true; color: \"black\" }\n"
+    "  TapHandler {\n"
+    "    gesturePolicy: TapHandler.ReleaseWithinBounds\n"
+    "    onTapped: drawTapped = true\n"
+    "  }\n"
+    "}\n";
 
+#define LLM_TRIGGER_FILE "/tmp/llm_button_trigger"
+#define DRAW_TRIGGER_FILE "/tmp/draw_button_trigger"
+#define BUTTON_W 84.0
+#define BUTTON_GAP 12.0
+
+// Placement-storage sizes for raw Qt object ABI hacking below. Deliberately
+// oversized rather than hand-measured (matching QVarRet's approach for
+// QVariant elsewhere in this file): QByteArray alone was previously
+// undersized at 16 bytes when its real Qt6 layout is 24 bytes (same
+// {Data*, char*, qsizetype} shape as QListRet, per the comment on that
+// type above) -- silently corrupting the QByteArray handed to setData()
+// and making every injected button's QML fail to compile
+// (QQmlComponent::status() == Error) despite the QML text itself being
+// fine. An oversized buffer can never corrupt anything (we zero it and
+// only ever read back what the real object wrote), so there's no
+// downside to being generous here.
+#define QCOMP_BUF_SZ 128
+#define QBA_BUF_SZ 64
+#define QURL_BUF_SZ 64
+
+// Sibling-button injector, parameterized over the QML source, the dynamic
+// "mark"/"tapped" property names, the trigger file, and the x-offset from the
+// menu's right edge (so several buttons can be lined up in a row). The
+// QQmlComponent/QByteArray statics are owned by the CALLER (one dedicated
+// static pair per button -- see gui_add_llm_button below), not shared across
+// buttons, so this is exactly the original single-button logic with the
+// button-specific bits pulled out as parameters -- nothing new is shared
+// state between the LLM and Draw buttons.
 // GUI THREAD ONLY (called from probe_once, itself only ever invoked via run_on_gui).
-static void gui_add_llm_button(void *menu){
+static void gui_add_button(void *menu, const char *qml, const char *mark_prop, const char *tapped_prop,
+                           const char *trigger_file, double x_offset,
+                           char *comp, void **comp_engine, char *ba, int *ba_init){
     void *handler = read_obj_prop(menu, "parent");
     if(!handler){ fprintf(stderr, "[llmbutton] add-btn: menu has no parent\n"); return; }
     double mx = read_obj_double(menu, "x");
     double my = read_obj_double(menu, "y");
     double mw = read_obj_double(menu, "width"); if(mw < 1.0) mw = 324.0;
     int    mvis = read_obj_bool(menu, "visible");
+    double bx = mx + mw + x_offset;
 
-    { // existing button on the handler? track menu box + poll llmTapped, then done.
+    { // existing button on the handler? track menu box + poll its tapped flag, then done.
         QListRet cl = p_childitems(handler);
         void **kids=(void**)cl.ptr; long kn=cl.size;
         for(long i=0;i<kn;i++){
-            if(read_obj_bool(kids[i], "llmMark")){
-                set_prop_int(kids[i], "x", (int)(mx + mw + 12.0));
+            if(read_obj_bool(kids[i], mark_prop)){
+                set_prop_int(kids[i], "x", (int)bx);
                 set_prop_int(kids[i], "y", (int)my);
                 set_prop_int(kids[i], "visible", mvis ? 1 : 0);
-                if(read_obj_bool(kids[i], "llmTapped")){
-                    fprintf(stderr, "[llmbutton] tapped! writing trigger file\n");
-                    FILE *tf = fopen(LLM_TRIGGER_FILE, "w"); if(tf) fclose(tf);
-                    set_prop_int(kids[i], "llmTapped", 0);
+                if(read_obj_bool(kids[i], tapped_prop)){
+                    fprintf(stderr, "[llmbutton] %s tapped! writing trigger file\n", mark_prop);
+                    FILE *tf = fopen(trigger_file, "w"); if(tf) fclose(tf);
+                    set_prop_int(kids[i], tapped_prop, 0);
                 }
                 return;
             }
@@ -236,26 +285,54 @@ static void gui_add_llm_button(void *menu){
     }
     void *engine = p_qmlengine(menu);
     if(!engine){ fprintf(stderr, "[llmbutton] add-btn: no qml engine\n"); return; }
-    static char comp[32]; static void *comp_engine = 0;
-    if(comp_engine != engine){
-        for(int k=0;k<32;k++) comp[k]=0;
+    if(*comp_engine != engine){
+        for(int k=0;k<QCOMP_BUF_SZ;k++) comp[k]=0;
         p_qcomp_ctor(comp, engine, 0);
-        static char ba[16]; static int ba_init = 0;
-        if(!ba_init){ p_qba_ctor(ba, LLM_QML, (long)strlen(LLM_QML)); ba_init = 1; }
-        char url[32]; for(int k=0;k<32;k++) url[k]=0; p_qurl_ctor(url);
+        if(!*ba_init){
+            for(int k=0;k<QBA_BUF_SZ;k++) ba[k]=0;
+            p_qba_ctor(ba, qml, (long)strlen(qml));
+            *ba_init = 1;
+        }
+        char url[QURL_BUF_SZ]; for(int k=0;k<QURL_BUF_SZ;k++) url[k]=0; p_qurl_ctor(url);
         p_qcomp_setdata(comp, ba, url);
         if(p_qurl_dtor) p_qurl_dtor(url);
-        comp_engine = engine;
+        *comp_engine = engine;
+
+        // setData() may compile asynchronously (status Loading) rather than
+        // finishing synchronously -- create() returns null if called before
+        // the component reaches Ready, so poll briefly (GUI thread only,
+        // this whole call chain is already on it) before giving up.
+        if(p_qcomp_status){
+            for(int w=0; w<50; w++){
+                int st = p_qcomp_status(comp);
+                if(st != 2 /*Loading*/) break;
+                usleep(2000);
+            }
+        }
     }
+    int status_before = p_qcomp_status ? p_qcomp_status(comp) : -1;
     void *item = p_qcomp_create(comp, p_qmlcontext ? p_qmlcontext(menu) : 0);
     if(item && p_setparentitem && p_setparent){
-        set_prop_int(item, "x", (int)(mx + mw + 12.0));
+        set_prop_int(item, "x", (int)bx);
         set_prop_int(item, "y", (int)my);
         p_setparent(item, handler);        // QObject ownership: dies with the handler
         p_setparentitem(item, handler);    // visual SIBLING of the menu, not content
-        fprintf(stderr, "[llmbutton] LLM button attached item=%p handler=%p at (%.0f,%.0f)\n",
-                item, handler, mx + mw + 12.0, my);
-    } else fprintf(stderr, "[llmbutton] add-btn: component create failed (item=%p)\n", item);
+        fprintf(stderr, "[llmbutton] button (%s) attached item=%p handler=%p at (%.0f,%.0f)\n",
+                mark_prop, item, handler, bx, my);
+    } else fprintf(stderr, "[llmbutton] add-btn: component create failed (item=%p) status=%d (0=Null 1=Ready 2=Loading 3=Error)\n",
+                   item, status_before);
+}
+
+static void gui_add_llm_button(void *menu){
+    static char llm_comp[QCOMP_BUF_SZ]; static void *llm_comp_engine = 0;
+    static char llm_ba[QBA_BUF_SZ]; static int llm_ba_init = 0;
+    gui_add_button(menu, LLM_QML, "llmMark", "llmTapped", LLM_TRIGGER_FILE, BUTTON_GAP,
+                   llm_comp, &llm_comp_engine, llm_ba, &llm_ba_init);
+
+    static char draw_comp[QCOMP_BUF_SZ]; static void *draw_comp_engine = 0;
+    static char draw_ba[QBA_BUF_SZ]; static int draw_ba_init = 0;
+    gui_add_button(menu, DRAW_QML, "drawMark", "drawTapped", DRAW_TRIGGER_FILE, BUTTON_GAP + BUTTON_W + BUTTON_GAP,
+                   draw_comp, &draw_comp_engine, draw_ba, &draw_ba_init);
 }
 
 // --- GUI-thread executor -----------------------------------------------------------
@@ -306,6 +383,7 @@ void _xovi_construct(void){
     p_qcomp_ctor  = (qcomp_ctor_fn)  dlsym(RTLD_DEFAULT,"_ZN13QQmlComponentC1EP10QQmlEngineP7QObject");
     p_qcomp_setdata=(qcomp_setdata_fn)dlsym(RTLD_DEFAULT,"_ZN13QQmlComponent7setDataERK10QByteArrayRK4QUrl");
     p_qcomp_create= (qcomp_create_fn)dlsym(RTLD_DEFAULT,"_ZN13QQmlComponent6createEP11QQmlContext");
+    p_qcomp_status= (qcomp_status_fn)dlsym(RTLD_DEFAULT,"_ZNK13QQmlComponent6statusEv");
     // QByteArray's char* ctor's size-parameter width has moved across Qt6 minor
     // versions (int in older Qt6, qsizetype -- long or long long depending on build --
     // in newer ones); dlsym'ing the wrong mangled name returns NULL rather than a
@@ -327,6 +405,7 @@ void _xovi_construct(void){
     g_qobj_smo    = dlsym(RTLD_DEFAULT,"_ZN7QObject16staticMetaObjectE");
 
     unlink(LLM_TRIGGER_FILE);   // never act on a stale trigger left over from a previous run
+    unlink(DRAW_TRIGGER_FILE);
 
     fprintf(stderr, "[llmbutton] loaded (probe+button) symbols: className=%p findChildren=%p allWindows=%p childItems=%p property=%p invokeImpl=%p qappSelf=%p v_tobool=%p v_todouble=%p v_dtor=%p qmlEngine=%p qmlContext=%p qcompCtor=%p qcompSetData=%p qcompCreate=%p qbaCtor=%p urlCtor=%p urlDtor=%p setProp=%p qvarI=%p setParentItem=%p setParent=%p smo=%p\n",
             (void*)p_className, (void*)p_findchildren, (void*)p_allwindows, (void*)p_childitems, (void*)p_qproperty,
