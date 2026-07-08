@@ -20,7 +20,7 @@ use smart_remarkable::{
     pen::Pen,
     simulation::SimulationConfig,
     status::SmartRemarkableStatus,
-    touch::{PenTool, Rect, Touch, TriggerCorner},
+    touch::{PenTool, Rect, Touch, TriggerCorner, TriggerSource},
     util::{build_svg_from_lines, fit_lines_to_rect, fit_svg_to_rect, setup_uinput, svg_to_bitmap, write_bitmap_to_file, OptionMap},
     web_server::start_web_server,
 };
@@ -547,6 +547,10 @@ async fn run_smart_remarkable_loop(
     // Slot holding the answer-placement box for the current select-mode run;
     // armed by processing_task, consumed by the draw_svg tool callback
     let placement_slot: Arc<Mutex<Option<Rect>>> = Arc::new(Mutex::new(None));
+    // Slot holding the original lassoed selection box, so the Draw button's
+    // draw_sketch tool can redraw into it (erasing the old ink first)
+    // instead of the answer-placement box below it
+    let selection_slot: Arc<Mutex<Option<Rect>>> = Arc::new(Mutex::new(None));
 
     // Register tools
     register_tools(
@@ -555,6 +559,7 @@ async fn run_smart_remarkable_loop(
         Arc::clone(&pen),
         Arc::clone(&touch),
         Arc::clone(&placement_slot),
+        Arc::clone(&selection_slot),
         &config,
     )?;
 
@@ -595,8 +600,13 @@ async fn run_smart_remarkable_loop(
                 info!("Main: trigger received, starting processing");
 
                 let selection = match &trigger_event {
-                    coordinator::TriggerEvent::UserSelection { selection, placement } => Some((*selection, *placement)),
+                    coordinator::TriggerEvent::UserSelection { selection, placement, .. } => Some((*selection, *placement)),
                     _ => None,
+                };
+                let trigger_source = match &trigger_event {
+                    coordinator::TriggerEvent::UserSelection { source, .. } => *source,
+                    coordinator::TriggerEvent::UserTouch { source } => *source,
+                    coordinator::TriggerEvent::WebTrigger => TriggerSource::Touch,
                 };
 
                 // Update progress to indicate we're processing (not waiting for triggers)
@@ -622,6 +632,7 @@ async fn run_smart_remarkable_loop(
                     let cancellation_clone = Arc::clone(&cancellation);
                     let touch_clone = Arc::clone(&touch);
                     let placement_slot_clone = Arc::clone(&placement_slot);
+                    let selection_slot_clone = Arc::clone(&selection_slot);
                     tokio::spawn(async move {
                         coordinator::processing_task(
                             config_clone,
@@ -631,6 +642,8 @@ async fn run_smart_remarkable_loop(
                             touch_clone,
                             selection,
                             placement_slot_clone,
+                            selection_slot_clone,
+                            trigger_source,
                         ).await
                     })
                 };
@@ -718,6 +731,7 @@ fn register_tools(
     pen: Arc<Mutex<Pen>>,
     _touch: Arc<TokioRwLock<Touch>>,
     placement_slot: Arc<Mutex<Option<Rect>>>,
+    selection_slot: Arc<Mutex<Option<Rect>>>,
     config: &Config,
 ) -> Result<()> {
     use serde_json::Value as json;
@@ -871,6 +885,123 @@ fn register_tools(
                     }
                 };
                 render(svg_data);
+            }),
+        );
+
+        // draw_sketch (Draw button only): like draw_svg, but the model also
+        // reports whether the lassoed selection was already a drawing. If
+        // so, erase the original ink and redraw into that SAME box instead
+        // of the answer-placement box below it -- an in-place "refine",
+        // rather than adding a new sketch elsewhere on the page.
+        #[allow(clippy::too_many_arguments)]
+        fn make_render_sketch(
+            output_file: Option<String>,
+            save_bitmap: Option<String>,
+            no_draw: bool,
+            test_mode: bool,
+            keyboard: Arc<Mutex<Keyboard>>,
+            pen: Arc<Mutex<Pen>>,
+            placement_slot: Arc<Mutex<Option<Rect>>>,
+            selection_slot: Arc<Mutex<Option<Rect>>>,
+        ) -> impl Fn(&str, bool) + Send + Sync + 'static {
+            move |svg_data: &str, redraw_in_place: bool| {
+                let selection_rect = selection_slot.lock().ok().and_then(|mut slot| slot.take());
+                let placement_rect = placement_slot.lock().ok().and_then(|mut slot| slot.take());
+                let target_rect = if redraw_in_place {
+                    selection_rect.or(placement_rect)
+                } else {
+                    placement_rect.or(selection_rect)
+                };
+
+                if redraw_in_place {
+                    if let Some(rect) = target_rect {
+                        if !no_draw && !test_mode {
+                            // No toolbar tool switch needed: xochitl only erases in
+                            // response to the pen's actual eraser-tip hardware signal
+                            // (BTN_TOOL_RUBBER), independent of which on-screen tool is
+                            // selected -- see Pen::erase_rect.
+                            let mut pen = lock!(pen);
+                            if let Err(e) = pen.erase_rect(rect) {
+                                log::error!("Failed to erase original drawing before redraw: {}", e);
+                            }
+                            drop(pen);
+                            std::thread::sleep(Duration::from_millis(300));
+                        }
+                    }
+                }
+
+                let svg_data = if let Some(rect) = target_rect {
+                    match fit_svg_to_rect(svg_data, rect) {
+                        Ok(fitted) => fitted,
+                        Err(e) => {
+                            log::error!("Failed to fit sketch to box: {}, drawing as-is", e);
+                            svg_data.to_string()
+                        }
+                    }
+                } else {
+                    svg_data.to_string()
+                };
+                let svg_data = svg_data.as_str();
+
+                if let Some(output_file) = &output_file {
+                    if let Err(e) = std::fs::write(output_file, svg_data) {
+                        log::error!("Failed to write output file: {}", e);
+                    }
+                }
+
+                let previous_tool = if !no_draw && !test_mode {
+                    tokio::task::block_in_place(|| {
+                        tokio::runtime::Handle::current().block_on(async {
+                            Touch::new(false, TriggerCorner::UpperRight).switch_to_tool(PenTool::Ballpoint).await
+                        })
+                    })
+                    .unwrap_or(PenTool::Unknown)
+                } else {
+                    PenTool::Unknown
+                };
+
+                let mut keyboard = lock!(keyboard);
+                let mut pen = lock!(pen);
+                if let Err(e) = draw_svg(svg_data, &mut keyboard, &mut pen, save_bitmap.as_ref(), no_draw) {
+                    log::error!("Failed to draw sketch: {}", e);
+                }
+                drop(keyboard);
+                drop(pen);
+
+                if !no_draw && !test_mode && previous_tool != PenTool::Unknown {
+                    tokio::task::block_in_place(|| {
+                        tokio::runtime::Handle::current()
+                            .block_on(async { Touch::new(false, TriggerCorner::UpperRight).restore_tool(previous_tool).await })
+                    })
+                    .ok();
+                }
+            }
+        }
+
+        let tool_config_draw_sketch = load_config("tool_draw_sketch.json");
+        let render_sketch = make_render_sketch(
+            output_file.clone(),
+            save_bitmap.clone(),
+            no_draw,
+            test_mode,
+            Arc::clone(&keyboard),
+            Arc::clone(&pen),
+            Arc::clone(&placement_slot),
+            Arc::clone(&selection_slot),
+        );
+        engine.register_tool(
+            "draw_sketch",
+            serde_json::from_str::<serde_json::Value>(tool_config_draw_sketch.as_str())?,
+            Box::new(move |arguments: json| {
+                let svg_data = match arguments["svg"].as_str() {
+                    Some(svg) => svg,
+                    None => {
+                        log::error!("draw_sketch tool called without valid 'svg' argument");
+                        return;
+                    }
+                };
+                let redraw_in_place = arguments["selection_is_drawing"].as_bool().unwrap_or(false);
+                render_sketch(svg_data, redraw_in_place);
             }),
         );
 

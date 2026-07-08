@@ -58,6 +58,25 @@ const VIRTUAL_HEIGHT: u16 = 1024;
 /// it -- see SELECT_MODE.md.
 const LLM_BUTTON_TRIGGER_FILE: &str = "/tmp/llm_button_trigger";
 
+/// Written by the same xovi extension when the sibling "Draw" button (beside the LLM
+/// button) is tapped. Selects the Draw prompt (`prompts/draw.json`) instead of the
+/// normal answer prompt for that one processing run -- see `TriggerSource`.
+const DRAW_BUTTON_TRIGGER_FILE: &str = "/tmp/draw_button_trigger";
+
+/// Which physical trigger woke up `wait_for_trigger`. Threaded through so select-mode
+/// can pick a different prompt/behavior for the Draw button without changing the
+/// public `wait_for_trigger` signature (see `Touch::last_trigger_source`).
+#[derive(Debug, Clone, Copy, PartialEq, Default)]
+pub enum TriggerSource {
+    /// Corner tap, four-finger gesture, or simulated trigger.
+    #[default]
+    Touch,
+    /// The injected "LLM" button beside xochitl's selection menu.
+    LlmButton,
+    /// The injected "Draw" button beside xochitl's selection menu.
+    DrawButton,
+}
+
 // Event codes
 const ABS_MT_SLOT: u16 = 47;
 const ABS_MT_TOUCH_MAJOR: u16 = 48;
@@ -105,6 +124,7 @@ pub enum TouchMode {
 pub struct Touch {
     mode: TouchMode,
     trigger_corner: TriggerCorner,
+    last_trigger_source: TriggerSource,
 }
 
 impl Touch {
@@ -130,6 +150,7 @@ impl Touch {
         // Never act on a trigger file left over from a previous run (matches the xovi
         // extension's own "unlink stale triggers on load" convention).
         let _ = std::fs::remove_file(LLM_BUTTON_TRIGGER_FILE);
+        let _ = std::fs::remove_file(DRAW_BUTTON_TRIGGER_FILE);
 
         Self {
             mode: TouchMode::Real {
@@ -138,6 +159,7 @@ impl Touch {
                 device_model,
             },
             trigger_corner,
+            last_trigger_source: TriggerSource::default(),
         }
     }
 
@@ -148,11 +170,19 @@ impl Touch {
         Ok(Self {
             mode: TouchMode::Simulated { simulator },
             trigger_corner,
+            last_trigger_source: TriggerSource::default(),
         })
+    }
+
+    /// Which physical trigger caused the most recent `wait_for_trigger` to return `Ok`.
+    /// Reset to `TriggerSource::Touch` at the start of every `wait_for_trigger` call.
+    pub fn last_trigger_source(&self) -> TriggerSource {
+        self.last_trigger_source
     }
 
     pub async fn wait_for_trigger(&mut self, cancellation: &SmartRemarkableCancellation) -> Result<()> {
         debug!("wait_for_trigger: entered, checking mode");
+        self.last_trigger_source = TriggerSource::default();
         match &mut self.mode {
             TouchMode::Simulated { simulator } => {
                 debug!("wait_for_trigger: using Simulated mode");
@@ -163,7 +193,9 @@ impl Touch {
             } => {
                 debug!("wait_for_trigger: using Real device mode");
                 let trigger_corner = self.trigger_corner;
-                Self::wait_for_real_trigger(event_stream, device_model, trigger_corner, cancellation).await
+                let source = Self::wait_for_real_trigger(event_stream, device_model, trigger_corner, cancellation).await?;
+                self.last_trigger_source = source;
+                Ok(())
             }
         }
     }
@@ -173,7 +205,7 @@ impl Touch {
         device_model: &DeviceModel,
         trigger_corner: TriggerCorner,
         cancellation: &SmartRemarkableCancellation,
-    ) -> Result<()> {
+    ) -> Result<TriggerSource> {
         debug!("wait_for_real_trigger: entered");
         let mut position_x = 0;
         let mut position_y = 0;
@@ -200,11 +232,15 @@ impl Touch {
                         return Err(anyhow::anyhow!("Touch waiting cancelled"));
                     }
 
-                    // Poll for the LLM button's trigger file (independent of trigger_corner)
+                    // Poll for the LLM/Draw buttons' trigger files (independent of trigger_corner)
                     _ = sleep(Duration::from_millis(150)) => {
                         if std::fs::remove_file(LLM_BUTTON_TRIGGER_FILE).is_ok() {
                             debug!("LLM button trigger file detected");
-                            return Ok(());
+                            return Ok(TriggerSource::LlmButton);
+                        }
+                        if std::fs::remove_file(DRAW_BUTTON_TRIGGER_FILE).is_ok() {
+                            debug!("Draw button trigger file detected");
+                            return Ok(TriggerSource::DrawButton);
                         }
                     }
 
@@ -230,7 +266,7 @@ impl Touch {
                                         if count == 0 {
                                             if max_concurrent >= 4 {
                                                 debug!("Four-finger tap detected ({} concurrent contacts)", max_concurrent);
-                                                return Ok(());
+                                                return Ok(TriggerSource::Touch);
                                             }
                                             max_concurrent = 0;
                                         }
@@ -240,7 +276,7 @@ impl Touch {
                                         if Self::is_in_trigger_zone(x, y, trigger_corner) {
                                             debug!("Touch release in target zone!");
                                             debug!("wait_for_real_trigger: returning Ok()");
-                                            return Ok(());
+                                            return Ok(TriggerSource::Touch);
                                         } else {
                                             debug!("Touch release NOT in trigger zone, continuing");
                                         }
@@ -633,6 +669,26 @@ impl Touch {
         self.switch_to_tool(previous).await?;
         Ok(())
     }
+
+    /// Select the eraser sidebar tool. Unlike `switch_to_tool`, `read_tool_state`
+    /// can't recognize an active eraser (`y_to_pen_tool` only maps the two pen
+    /// slots), so this always opens the palette, taps the eraser icon, and
+    /// closes the palette again -- the caller doesn't get a "previous tool" back
+    /// since whatever draws next (e.g. `draw_svg_centerline`'s render pipeline)
+    /// already re-selects its own pen tool before drawing.
+    pub async fn select_eraser(&mut self) -> Result<()> {
+        let (palette_open, _) = self.read_tool_state().await;
+        if !palette_open {
+            self.tap(Self::PALETTE_BUTTON).await?;
+            sleep(Duration::from_millis(100)).await;
+        }
+        self.tap((Self::SIDEBAR_X, Self::SIDEBAR_Y_ERASER)).await?;
+        if !palette_open {
+            self.tap(Self::PALETTE_BUTTON).await?;
+        }
+        Ok(())
+    }
+
 
     fn is_in_trigger_zone(x: i32, y: i32, trigger_corner: TriggerCorner) -> bool {
         const CORNER_SIZE: i32 = 68; // Size of the trigger zone (68x68 pixels)

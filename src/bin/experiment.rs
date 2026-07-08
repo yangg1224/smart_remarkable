@@ -3,7 +3,7 @@ use clap::{Parser, Subcommand};
 use evdev::{Device, EventType as EvdevEventType, InputEvent};
 use smart_remarkable::pen::Pen;
 use smart_remarkable::screenshot::Screenshot;
-use smart_remarkable::touch::{PenTool, Touch, TriggerCorner};
+use smart_remarkable::touch::{PenTool, Rect, Touch, TriggerCorner};
 use smart_remarkable::util::{svg_to_alpha_bitmap, svg_to_bitmap, svg_to_bitmap_threshold};
 use std::thread::sleep as std_sleep;
 use std::time::Duration;
@@ -86,6 +86,14 @@ enum Commands {
     SelectFineliner,
     /// Switch back to ballpoint tool
     SelectBallpoint,
+    /// Select the eraser sidebar tool (diagnostic, for verifying the icon position)
+    SelectEraser,
+    /// Erase within a rect (x, y, w, h in virtual 768x1024 coords)
+    EraseRect { x: i32, y: i32, w: i32, h: i32 },
+    /// Draw a line with whatever tool is CURRENTLY selected (no tool switch, unlike DrawLine)
+    DrawLineRaw { x1: i32, y1: i32, x2: i32, y2: i32 },
+    /// Diagnostic: stroke using BTN_TOOL_RUBBER instead of BTN_TOOL_PEN (bypasses toolbar tool)
+    DrawLineRubber { x1: i32, y1: i32, x2: i32, y2: i32 },
     /// Read current tool state (for debugging pixel detection)
     ReadToolState,
     /// Render an SVG string via bidirectional scan (alternating L→R and R→L per row)
@@ -320,6 +328,33 @@ async fn main() -> Result<()> {
             let mut touch = Touch::new(false, TriggerCorner::UpperRight);
             let previous = touch.switch_to_tool(PenTool::Ballpoint).await?;
             println!("SelectBallpoint: switched to ballpoint (was {:?})", previous);
+        }
+
+        Commands::SelectEraser => {
+            let mut touch = Touch::new(false, TriggerCorner::UpperRight);
+            touch.select_eraser().await?;
+            println!("SelectEraser: tapped eraser sidebar icon");
+        }
+
+        Commands::DrawLineRaw { x1, y1, x2, y2 } => {
+            let mut pen = Pen::new(false);
+            pen.draw_line_screen((x1, y1), (x2, y2))?;
+            println!("DrawLineRaw: ({}, {}) to ({}, {})", x1, y1, x2, y2);
+        }
+
+        Commands::DrawLineRubber { x1, y1, x2, y2 } => {
+            let mut pen = Pen::new(false);
+            pen.draw_line_rubber_screen((x1, y1), (x2, y2))?;
+            println!("DrawLineRubber: ({}, {}) to ({}, {})", x1, y1, x2, y2);
+        }
+
+        Commands::EraseRect { x, y, w, h } => {
+            let mut touch = Touch::new(false, TriggerCorner::UpperRight);
+            touch.select_eraser().await?;
+            std_sleep(Duration::from_millis(300));
+            let mut pen = Pen::new(false);
+            pen.erase_rect(Rect { x, y, w, h })?;
+            println!("EraseRect: erased ({}, {}, {}, {})", x, y, w, h);
         }
 
         Commands::ReadToolState => {

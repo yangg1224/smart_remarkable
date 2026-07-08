@@ -13,16 +13,20 @@ use crate::llm_engine::{LLMEngine, ModelExecutionStatus};
 use crate::screenshot::Screenshot;
 use crate::segmenter::ImageAnalyzer;
 use crate::simulation::SimulationConfig;
-use crate::touch::{Rect, Touch};
+use crate::touch::{Rect, Touch, TriggerSource};
 
 /// Events that can trigger AI processing
 #[derive(Debug, Clone)]
 pub enum TriggerEvent {
     /// User touched the trigger corner
-    UserTouch,
+    UserTouch { source: TriggerSource },
     /// User touched the trigger corner, then tapped the corners of a
     /// selection box and an answer-placement box (select mode)
-    UserSelection { selection: Rect, placement: Rect },
+    UserSelection {
+        selection: Rect,
+        placement: Rect,
+        source: TriggerSource,
+    },
     /// Trigger via web API (for testing/simulation)
     WebTrigger,
 }
@@ -98,7 +102,13 @@ pub async fn trigger_task(
 
         if no_trigger {
             debug!("No-trigger mode: auto-triggering");
-            if trigger_tx.send(TriggerEvent::UserTouch).await.is_err() {
+            if trigger_tx
+                .send(TriggerEvent::UserTouch {
+                    source: TriggerSource::Touch,
+                })
+                .await
+                .is_err()
+            {
                 info!("Trigger receiver dropped, exiting trigger task");
                 break;
             }
@@ -133,10 +143,12 @@ pub async fn trigger_task(
                 debug!("Trigger task: wait_for_trigger returned Ok, touch detected");
                 info!("Trigger task: touch detected");
 
+                let source = touch_guard.last_trigger_source();
+
                 // In select mode, collect the selection and placement box corners
                 // while we still hold the touch event stream
                 let event = if collect_taps && touch_guard.is_real() {
-                    match collect_selection(&mut touch_guard, &cancellation).await {
+                    match collect_selection(&mut touch_guard, &cancellation, source).await {
                         Ok(event) => event,
                         Err(e) => {
                             if e.to_string().contains("cancelled") {
@@ -148,7 +160,7 @@ pub async fn trigger_task(
                         }
                     }
                 } else {
-                    TriggerEvent::UserTouch
+                    TriggerEvent::UserTouch { source }
                 };
 
                 // Drop the lock before sending the event so processing_task can acquire it
@@ -184,7 +196,11 @@ pub async fn trigger_task(
 
 /// Collect the four taps that define the selection box (what to answer)
 /// and the placement box (where to draw the answer): two opposite corners each.
-async fn collect_selection(touch: &mut Touch, cancellation: &SmartRemarkableCancellation) -> Result<TriggerEvent> {
+async fn collect_selection(
+    touch: &mut Touch,
+    cancellation: &SmartRemarkableCancellation,
+    source: TriggerSource,
+) -> Result<TriggerEvent> {
     info!("Select mode: tap two corners of the handwriting to select");
     let sel_a = touch.wait_for_tap(cancellation).await?;
     let sel_b = touch.wait_for_tap(cancellation).await?;
@@ -196,7 +212,11 @@ async fn collect_selection(touch: &mut Touch, cancellation: &SmartRemarkableCanc
     let placement = Rect::from_corners(place_a, place_b);
     info!("Select mode: placement box {:?}", placement);
 
-    Ok(TriggerEvent::UserSelection { selection, placement })
+    Ok(TriggerEvent::UserSelection {
+        selection,
+        placement,
+        source,
+    })
 }
 
 /// Task that monitors for cancel touch during processing
@@ -349,6 +369,8 @@ pub async fn processing_task(
     touch: Arc<tokio::sync::RwLock<Touch>>,
     selection: Option<(Rect, Rect)>,
     placement_slot: Arc<Mutex<Option<Rect>>>,
+    selection_slot: Arc<Mutex<Option<Rect>>>,
+    trigger_source: TriggerSource,
 ) -> Result<()> {
     info!("Processing task: starting");
 
@@ -400,10 +422,15 @@ pub async fn processing_task(
     };
 
     // Arm the placement slot so the draw_svg tool scales the answer into
-    // the box the user chose
-    if let Some((_, placement_rect)) = &selection {
+    // the box the user chose, and the selection slot so the Draw button's
+    // draw_sketch tool can redraw into the ORIGINAL lassoed box instead
+    // (when the model reports the selection was already a drawing).
+    if let Some((selection_rect, placement_rect)) = &selection {
         if let Ok(mut slot) = placement_slot.lock() {
             *slot = Some(*placement_rect);
+        }
+        if let Ok(mut slot) = selection_slot.lock() {
+            *slot = Some(*selection_rect);
         }
     }
 
@@ -447,12 +474,19 @@ pub async fn processing_task(
         None
     };
 
-    // Load prompt
-    let prompt_general_raw = load_config(&config.prompt);
+    // Load prompt. The Draw button overrides the normal select-mode prompt
+    // with prompts/draw.json regardless of --prompt/config.prompt, since it's
+    // a distinct action (sketch/refine) from the LLM button's Q&A behavior.
+    let prompt_name = if config.select_mode && trigger_source == TriggerSource::DrawButton {
+        "draw.json".to_string()
+    } else {
+        config.prompt.clone()
+    };
+    let prompt_general_raw = load_config(&prompt_name);
     let prompt_general_json = serde_json::from_str::<serde_json::Value>(prompt_general_raw.as_str())?;
     let mut prompt = prompt_general_json["prompt"]
         .as_str()
-        .ok_or_else(|| anyhow::anyhow!("Prompt file '{}' missing required 'prompt' field", config.prompt))?
+        .ok_or_else(|| anyhow::anyhow!("Prompt file '{}' missing required 'prompt' field", prompt_name))?
         .to_string();
 
     // Add segmentation to prompt if available
@@ -484,8 +518,11 @@ pub async fn processing_task(
         // This is a placeholder - the LLMEngine trait would need to expose the raw response
     }
 
-    // Disarm the placement slot so later non-select runs draw normally
+    // Disarm both slots so later non-select runs draw normally
     if let Ok(mut slot) = placement_slot.lock() {
+        slot.take();
+    }
+    if let Ok(mut slot) = selection_slot.lock() {
         slot.take();
     }
 

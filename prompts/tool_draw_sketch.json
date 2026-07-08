@@ -1,0 +1,19 @@
+{
+  "name": "draw_sketch",
+  "description": "Draw a line-art sketch to the screen using simulated pen input, for Draw-button mode. Unlike draw_svg, you must also report whether the input selection was already a drawing, since that changes where the app places your sketch: into the same box as the original (replacing it) vs. into a fresh box below it.",
+  "internal_command": "draw_sketch",
+  "parameters": {
+    "type": "object",
+    "properties": {
+      "selection_is_drawing": {
+        "type": "boolean",
+        "description": "true if the input selection was already mostly a drawing/sketch/diagram (so your svg redraws/replaces it in the SAME spot); false if the input was mostly text (so your svg is a new illustrative doodle placed in a fresh box near it). Get this right -- it controls placement."
+      },
+      "svg": {
+        "type": "string",
+        "description": "SVG line-art to be rendered. This should be sized 768x1024 px and roughly centered/composed within that canvas -- the app measures your ink and scales/positions it into the correct box for you, so do not compute placement coordinates yourself. The display can only show black and white. Use fill=\"none\" stroke=\"black\" stroke-width=\"2\" for all lines/shapes -- never use fill; use short parallel hatching lines instead of fill for any shading/texture. Keep every stroke a clean, continuous, single-weight contour -- no jagged, sketchy, or broken linework, since this is traced into real pen strokes and messy paths render poorly. Do not use a style tag, gradients, transparency, or shadows. Do include the xmlns in the main svg tag. How much detail/line count to use depends on the case described in the prompt -- follow that, not a fixed rule here."
+      }
+    },
+    "required": ["selection_is_drawing", "svg"]
+  }
+}
