@@ -195,7 +195,8 @@ see `build.sh`). Copy the resulting binary to your device with `scp`, as in
 
 ## License
 
-MIT — see [LICENSE](LICENSE).
+MIT — see [LICENSE](LICENSE). The release binary also embeds a GPL-2.0
+kernel module; see [THIRD_PARTY_LICENSES.md](THIRD_PARTY_LICENSES.md).
 
 ## Credits
 
