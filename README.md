@@ -20,6 +20,8 @@ gesture required. It's added by a small extension
 (`xovi-ext/llmbutton`) that hooks into xochitl's UI. See
 [SELECT_MODE.md](SELECT_MODE.md) for details.
 
+<img src="docs/llm-button.jpeg" width="300">
+
 ## Contents
 
 - [Install](#install)
