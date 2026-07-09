@@ -370,6 +370,7 @@ pub async fn processing_task(
     selection: Option<(Rect, Rect)>,
     placement_slot: Arc<Mutex<Option<Rect>>>,
     selection_slot: Arc<Mutex<Option<Rect>>>,
+    input_image_slot: Arc<Mutex<Option<String>>>,
     trigger_source: TriggerSource,
 ) -> Result<()> {
     info!("Processing task: starting");
@@ -433,6 +434,11 @@ pub async fn processing_task(
             *slot = Some(*selection_rect);
         }
     }
+    // Arm the input-image slot so the image-generation draw tool can attach
+    // the cropped selection to its request (sketch-enhancement mode)
+    if let Ok(mut slot) = input_image_slot.lock() {
+        *slot = Some(base64_image.clone());
+    }
 
     if config.no_submit {
         info!("Skipping LLM submission (no_submit mode)");
@@ -440,9 +446,14 @@ pub async fn processing_task(
         return Ok(());
     }
 
-    // Tap middle bottom to position cursor for text input (before showing "Thinking")
-    if let Err(e) = touch.write().await.tap_middle_bottom().await {
-        info!("Failed to tap middle bottom: {}", e);
+    // Tap middle bottom to position cursor for text input (before showing
+    // "Thinking"). Skipped in select mode: the tap dismisses the active
+    // marquee and its floating menu, which the in-place redraw needs (the
+    // draw tool deletes the lassoed strokes via that menu's trash button).
+    if !config.select_mode {
+        if let Err(e) = touch.write().await.tap_middle_bottom().await {
+            info!("Failed to tap middle bottom: {}", e);
+        }
     }
 
     // Update progress: building context
@@ -478,7 +489,13 @@ pub async fn processing_task(
     // with prompts/draw.json regardless of --prompt/config.prompt, since it's
     // a distinct action (sketch/refine) from the LLM button's Q&A behavior.
     let prompt_name = if config.select_mode && trigger_source == TriggerSource::DrawButton {
-        "draw.json".to_string()
+        // With an image-generation model configured, the LLM plans the
+        // drawing (prompt-writing) instead of authoring SVG itself
+        if config.image_model.is_some() {
+            "draw_image.json".to_string()
+        } else {
+            "draw.json".to_string()
+        }
     } else {
         config.prompt.clone()
     };
@@ -523,6 +540,9 @@ pub async fn processing_task(
         slot.take();
     }
     if let Ok(mut slot) = selection_slot.lock() {
+        slot.take();
+    }
+    if let Ok(mut slot) = input_image_slot.lock() {
         slot.take();
     }
 

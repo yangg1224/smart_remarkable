@@ -29,6 +29,10 @@ pub struct Config {
     pub no_trigger: bool,
     pub apply_segmentation: bool,
     pub select_mode: bool,
+    // Image-generation model for Draw-button sketches (e.g.
+    // "gemini-2.5-flash-image" aka nano banana). None = draw via LLM SVG.
+    pub image_model: Option<String>,
+    pub image_api_key: Option<String>,
     pub web_search: bool,
     pub thinking: bool,
     pub thinking_tokens: u32,
@@ -65,6 +69,8 @@ impl Default for Config {
             no_trigger: false,
             apply_segmentation: false,
             select_mode: false,
+            image_model: None,
+            image_api_key: None,
             web_search: false,
             thinking: false,
             thinking_tokens: 5000,

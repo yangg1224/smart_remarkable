@@ -703,6 +703,10 @@ impl Touch {
     }
 
     fn virtual_to_input((x, y): (i32, i32), device_model: &DeviceModel) -> (i32, i32) {
+        // Synthetic taps are planned in user space (UI-element constants,
+        // rects from normalized screenshots); mirror to panel space when the
+        // UI is rotated 180°
+        let (x, y) = crate::util::maybe_rot180_virtual((x, y));
         // Swap and normalize the coordinates
         let x_normalized = x as f32 / VIRTUAL_WIDTH as f32;
         let y_normalized = y as f32 / VIRTUAL_HEIGHT as f32;
@@ -729,7 +733,7 @@ impl Touch {
         let x_normalized = x as f32 / screen_width as f32;
         let y_normalized = y as f32 / screen_height as f32;
 
-        match device_model {
+        let virt = match device_model {
             DeviceModel::RemarkablePaperPro => {
                 let x_input = (x_normalized * VIRTUAL_WIDTH as f32) as i32;
                 let y_input = (y_normalized * VIRTUAL_HEIGHT as f32) as i32;
@@ -741,7 +745,10 @@ impl Touch {
                 let y_input = ((1.0 - y_normalized) * VIRTUAL_HEIGHT as f32) as i32;
                 (x_input, y_input)
             }
-        }
+        };
+        // Physical touches arrive in panel space; report them in user space
+        // so select-mode corner taps line up with the normalized screenshots
+        crate::util::maybe_rot180_virtual(virt)
     }
 
     fn screen_dimensions(device_model: &DeviceModel) -> (u32, u32) {

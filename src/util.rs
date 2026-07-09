@@ -15,6 +15,36 @@ use crate::embedded_assets::{get_answer_font_data, get_uinput_module_data};
 
 pub type OptionMap = HashMap<String, String>;
 
+/// Whether xochitl's UI is currently rendered 180° rotated relative to the
+/// panel/framebuffer (user holding the device flipped). Detected from each
+/// screenshot (see Screenshot::detect_ui_rotated). When set, screenshots are
+/// normalized to user space, and all synthetic pen/touch coordinates are
+/// mirrored at the injection boundary so taps hit the UI elements the user
+/// actually sees and ink reads upright to the user.
+static UI_ROTATED_180: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+pub fn ui_rotated_180() -> bool {
+    UI_ROTATED_180.load(std::sync::atomic::Ordering::Relaxed)
+}
+
+pub fn set_ui_rotated_180(rotated: bool) {
+    if rotated != ui_rotated_180() {
+        info!("UI rotation state changed: rotated_180={}", rotated);
+    }
+    UI_ROTATED_180.store(rotated, std::sync::atomic::Ordering::Relaxed);
+}
+
+/// Map user-space virtual coordinates to panel-space virtual coordinates
+/// (identity when the UI is not rotated). Involution, so it converts panel
+/// reads back to user space too.
+pub fn maybe_rot180_virtual((x, y): (i32, i32)) -> (i32, i32) {
+    if ui_rotated_180() {
+        (767 - x, 1023 - y)
+    } else {
+        (x, y)
+    }
+}
+
 /// Build a font database with system fonts plus the bundled answer fonts
 /// (see embedded_assets::get_answer_font_data), so drawn answers render with
 /// a consistent, legible style regardless of what's installed on the device.
@@ -89,6 +119,77 @@ pub fn svg_to_bitmap_threshold(svg_data: &str, width: u32, height: u32, threshol
         .collect();
 
     Ok(bitmap)
+}
+
+/// Decode a generated image (PNG/JPEG) into an ink bitmap for skeleton
+/// tracing: grayscale, downscale so the longest side is at most `max_dim`
+/// (thinning cost grows with area, and the pen's virtual canvas is only
+/// 768x1024 anyway), then threshold dark pixels to ink. White background
+/// with black line art is assumed, as requested from the image model.
+pub fn image_to_ink_bitmap(image_bytes: &[u8], max_dim: u32) -> Result<Vec<Vec<bool>>> {
+    let img = image::load_from_memory(image_bytes)?;
+    let gray = img.to_luma8();
+    let (w, h) = gray.dimensions();
+
+    let scale = (max_dim as f32 / w.max(h) as f32).min(1.0);
+    let gray = if scale < 1.0 {
+        let (nw, nh) = (((w as f32 * scale) as u32).max(1), ((h as f32 * scale) as u32).max(1));
+        image::imageops::resize(&gray, nw, nh, image::imageops::FilterType::Triangle)
+    } else {
+        gray
+    };
+
+    let (w, h) = gray.dimensions();
+    // Threshold on the dark side of mid-gray so anti-aliased edges don't
+    // fatten the strokes before thinning.
+    let bitmap: Vec<Vec<bool>> = (0..h).map(|y| (0..w).map(|x| gray.get_pixel(x, y).0[0] < 128).collect()).collect();
+
+    let ink: usize = bitmap.iter().map(|row| row.iter().filter(|&&b| b).count()).sum();
+    debug!("image_to_ink_bitmap: {}x{} bitmap, {} ink pixels", w, h, ink);
+    Ok(bitmap)
+}
+
+/// Upscale a small base64 PNG (e.g. a cropped lasso selection of a few
+/// hundred pixels) so the image-generation model gets enough resolution to
+/// read the sketch. Returns the input unchanged if it is already at least
+/// `min_dim` on its longest side, or on any decode error.
+pub fn upscale_png_b64(b64: &str, min_dim: u32) -> String {
+    use base64::prelude::*;
+    let upscaled = || -> Result<String> {
+        let bytes = BASE64_STANDARD.decode(b64)?;
+        let img = image::load_from_memory(&bytes)?;
+        let (w, h) = (img.width(), img.height());
+
+        // Whiten the background: the crop of a lassoed region carries the
+        // marquee's gray fill (~rgb 194); the image model reads the sketch
+        // better as black ink on clean white.
+        let mut gray = img.to_luma8();
+        for p in gray.pixels_mut() {
+            if p.0[0] > 150 {
+                p.0[0] = 255;
+            }
+        }
+        let img = image::DynamicImage::ImageLuma8(gray);
+
+        let resized = if w.max(h) >= min_dim {
+            img
+        } else {
+            let scale = min_dim as f32 / w.max(h) as f32;
+            img.resize(
+                (w as f32 * scale) as u32,
+                (h as f32 * scale) as u32,
+                image::imageops::FilterType::Lanczos3,
+            )
+        };
+        let mut png = std::io::Cursor::new(Vec::new());
+        resized.write_to(&mut png, image::ImageFormat::Png)?;
+        debug!("upscale_png_b64: {}x{} -> {}x{}", w, h, resized.width(), resized.height());
+        Ok(BASE64_STANDARD.encode(png.into_inner()))
+    };
+    upscaled().unwrap_or_else(|e| {
+        info!("upscale_png_b64 failed ({}), sending original", e);
+        b64.to_string()
+    })
 }
 
 /// Same as svg_to_bitmap but returns alpha values (0-255) instead of boolean.

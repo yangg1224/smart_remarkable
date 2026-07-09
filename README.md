@@ -28,6 +28,17 @@ selection is already a drawing or sketch, it erases the original and redraws
 an improved, more detailed version of it in the same spot. See
 [SELECT_MODE.md](SELECT_MODE.md) for details.
 
+**New: image-generation drawing (`--image-model`).** By default the Draw
+button's artwork is SVG written by the chat LLM, which tops out at schematic
+line art. Pass `--image-model` (default `gemini-2.5-flash-image`, Google's
+"nano banana") and the sketch is instead rendered by a real image-generation
+model — the chat LLM only classifies the selection and writes the image
+prompt — then skeleton-traced into pen strokes. Sketch enhancement becomes
+true image-to-image: your lassoed drawing is attached to the request, and
+the original strokes are removed via xochitl's own selection-delete before
+the refined version draws in their place. Needs `GEMINI_API_KEY` or
+`GOOGLE_API_KEY`.
+
 ## Contents
 
 - [Features](#features)
@@ -67,9 +78,27 @@ an improved, more detailed version of it in the same spot. See
   routes to `prompts/draw.json`'s `draw_sketch` tool instead of an LLM
   answer: if the selection is mostly text, the model draws an illustrative
   doodle below it; if the selection is already a drawing, the app erases
-  the original ink (via a real hardware eraser-tip signal, not just a
-  toolbar switch) and redraws an improved version in the same spot. See
+  the original ink and redraws an improved version in the same spot. See
   [SELECT_MODE.md](SELECT_MODE.md) for the full mechanics.
+
+- **Image-generation drawing** (`--image-model`, `--image-api-key`).
+  Reroutes the Draw button through an image-generation model (default
+  `gemini-2.5-flash-image`, "nano banana"): the chat LLM classifies the
+  selection and writes a detailed image prompt (`prompts/draw_image.json`),
+  `src/image_gen.rs` calls the Gemini image API — attaching the upscaled,
+  background-cleaned crop of your sketch in enhancement mode — and the
+  returned line art is thresholded, thinned to a 1-px skeleton, and traced
+  as pen strokes (`Pen::draw_bitmap_centerline`). For the in-place redraw,
+  the original strokes are deleted exactly via xochitl's own selection menu
+  (the app locates and taps its trash button; dense hardware-eraser sweeps
+  are the fallback), and only after generation succeeded — a failed API
+  call never destroys your sketch.
+
+- **Rotation-aware input.** Each screenshot detects whether xochitl's UI is
+  rendered 180° rotated (device held upside down), normalizes the image to
+  the user's orientation for the LLM and marquee detection, and mirrors all
+  synthetic pen/touch coordinates back at the injection boundary — so taps,
+  erasing, and drawing land correctly either way you hold the tablet.
 
 - **Web config UI** (`--web-server`, `--web-port`). A `warp`-based HTTP
   server (default port `8080`) serving a small static UI for viewing and
@@ -151,6 +180,8 @@ sketch/redraw flow respectively.
 | `--engine-api-key` | from env var | API key |
 | `--prompt` | `general.json` | Prompt template (auto-switches to `selection.json` in select mode) |
 | `--select-mode` | off | Enable Select Mode |
+| `--image-model` | off (`gemini-2.5-flash-image` if passed bare) | Render Draw-button sketches with an image-generation model |
+| `--image-api-key` | `GEMINI_API_KEY` / `GOOGLE_API_KEY` | API key for the image model |
 | `--trigger-corner` | `UR` | `UR`/`UL`/`LR`/`LL` |
 | `--apply-segmentation` | off | Add CV-derived spatial hints to the prompt |
 | `--web-search` / `--thinking` / `--thinking-tokens` | off / off / `5000` | Anthropic-only extras |
@@ -159,7 +190,7 @@ sketch/redraw flow respectively.
 | `--log-level` | `info` | `debug`, `trace`, etc. |
 | `--input-png`, `--test-mode`, `--test-touch-events-file`, `--test-screenshot-dir`, `--test-auto-trigger-delay` | — | Offline simulation / testing |
 | `--no-submit`, `--no-draw`, `--no-loop`, `--no-trigger` | off | Skip pieces of the pipeline for testing |
-| `--debug-tap`, `--debug-drag`, `--debug-lasso`, `--debug-type`, `--debug-svg` | — | One-shot device-I/O helpers, exit after running |
+| `--debug-tap`, `--debug-drag`, `--debug-lasso`, `--debug-type`, `--debug-svg`, `--debug-erase` | — | One-shot device-I/O helpers, exit after running |
 
 **Example commands**
 
@@ -172,6 +203,10 @@ GOOGLE_API_KEY=... ./smart_remarkable --select-mode -m gemini-2.5-pro --web-serv
 
 # Offline test against a saved screenshot, no drawing, single pass
 ./smart_remarkable --input-png ./test.png --no-draw --no-loop --no-trigger --no-submit
+
+# Select Mode with nano-banana image generation for the Draw button
+OPENAI_API_KEY=... GEMINI_API_KEY=... ./smart_remarkable --select-mode \
+  --trigger-corner four-finger -m gpt-5.4 --image-model
 ```
 
 ## Install
@@ -257,7 +292,12 @@ drop them in a local `.env` file (loaded via `dotenv`):
 export OPENAI_API_KEY=your-key-here
 export ANTHROPIC_API_KEY=your-key-here
 export GOOGLE_API_KEY=your-key-here
+export GEMINI_API_KEY=your-key-here   # image generation (--image-model); GOOGLE_API_KEY also works
 ```
+
+Note: image generation is not in the Gemini free tier — the key's Google AI
+Studio project needs billing enabled (`gemini-2.5-flash-image` is ~$0.04 per
+image).
 
 - `--engine` picks the backend explicitly (`openai`, `anthropic`,
   `google`). If omitted, it's guessed from the `--model` name's prefix
@@ -329,6 +369,7 @@ export GOOGLE_API_KEY=your-key-here
 | `skeleton.rs` | Zhang-Suen thinning / centerline tracing |
 | `util.rs` | SVG↔bitmap rasterization, fit-to-rect logic, uinput setup |
 | `llm_engine/` | `LLMEngine` trait + `openai.rs`/`anthropic.rs`/`google.rs` |
+| `image_gen.rs` | Gemini image-generation client for `--image-model` (nano banana) |
 | `config.rs` | Layered config via `figment`/`toml`, hot-reload watch channel |
 | `cancellation.rs` | Cooperative cancellation tokens |
 | `status.rs` | Shared status snapshot for the web UI |

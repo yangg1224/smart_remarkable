@@ -1,0 +1,19 @@
+{
+  "name": "draw_sketch",
+  "description": "Generate a refined line-art sketch with an image-generation model and trace it onto the screen as pen strokes. You do not draw anything yourself: you write the image-generation prompt and report whether the input selection was already a drawing, which controls placement (redraw into the SAME box, replacing the original, vs. a fresh box below it).",
+  "internal_command": "draw_sketch",
+  "parameters": {
+    "type": "object",
+    "properties": {
+      "selection_is_drawing": {
+        "type": "boolean",
+        "description": "true if the input selection was already mostly a drawing/sketch/diagram (the generated sketch replaces it in the SAME spot, and your prompt should be a redraw/refine instruction — the user's original sketch image is automatically attached to the image-model request); false if the input was mostly text (the sketch is a new illustration placed in a fresh box near it, and no input image is attached). Get this right — it controls both placement and whether the image model sees the original sketch."
+      },
+      "image_prompt": {
+        "type": "string",
+        "description": "Detailed prompt for the image-generation model. For selection_is_drawing=true: name the subject concretely, instruct it to redraw the attached rough sketch as a significantly more detailed, professionally rendered concept drawing of the same subject, keeping the same viewpoint, composition, pose and proportions, and explicitly enumerate the subject and every distinctive feature you identified in the input so nothing is lost or replaced, plus the realistic details the refined version should add. For selection_is_drawing=false: describe one clear, well-composed illustration representing the subject of the text (subject, viewpoint, key elements); never ask for the words themselves to be drawn. In both cases do NOT include style boilerplate (black-and-white, line weight, background, 'no shading') — strict line-art style rules are appended automatically."
+      }
+    },
+    "required": ["selection_is_drawing", "image_prompt"]
+  }
+}

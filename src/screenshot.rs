@@ -268,6 +268,15 @@ impl Screenshot {
         let img = image::load_from_memory(&png_data)?;
         let resized_img = img.resize_exact(VIRTUAL_WIDTH, VIRTUAL_HEIGHT, image::imageops::FilterType::Nearest);
 
+        // Normalize to user space: if the UI is rendered 180°-rotated (user
+        // holding the device flipped), rotate the screenshot so everything
+        // downstream — marquee detection, LLM crops, toolbar pixel checks,
+        // placement planning — works in the orientation the user sees.
+        // Pen/touch injection mirrors coordinates back (util::maybe_rot180_virtual).
+        let rotated = Self::detect_ui_rotated(&resized_img);
+        crate::util::set_ui_rotated_180(rotated);
+        let resized_img = if rotated { resized_img.rotate180() } else { resized_img };
+
         // Encode the resized image back to PNG
         debug!("Re-encoding resized image");
         let mut resized_png_data = Vec::new();
@@ -298,6 +307,33 @@ impl Screenshot {
         }
 
         Ok(resized_png_data)
+    }
+
+    /// Detect whether xochitl's UI is rendered 180°-rotated in the
+    /// framebuffer (user holding the device upside down). The toolbar /
+    /// palette-toggle strip lives along the left-top edge normally, and in
+    /// the mirrored right-bottom strip when rotated — compare dark-pixel
+    /// counts between the two. With no clear toolbar signal on either side
+    /// (e.g. fullscreen page), keep the last known state.
+    fn detect_ui_rotated(img: &image::DynamicImage) -> bool {
+        let gray = img.to_luma8();
+        let dark_count = |x0: u32, y0: u32, x1: u32, y1: u32| -> u32 {
+            let mut n = 0u32;
+            for y in y0..y1 {
+                for x in x0..x1 {
+                    if gray.get_pixel(x, y).0[0] < 100 {
+                        n += 1;
+                    }
+                }
+            }
+            n
+        };
+        let normal = dark_count(8, 8, 64, 300);
+        let rotated = dark_count(VIRTUAL_WIDTH - 64, VIRTUAL_HEIGHT - 300, VIRTUAL_WIDTH - 8, VIRTUAL_HEIGHT - 8);
+        if normal.max(rotated) < 20 {
+            return crate::util::ui_rotated_180();
+        }
+        rotated > normal
     }
 
     fn encode_png(&self, raw_data: &[u8]) -> Result<Vec<u8>> {
@@ -465,6 +501,138 @@ impl Screenshot {
             w,
             h,
         })
+    }
+
+    /// Find the floating menu xochitl shows next to an active lasso
+    /// selection (cut / copy / style / delete) and return the tap point of
+    /// its rightmost icon — the trash/delete button. Scans a band below,
+    /// then above, the selection rect for a horizontal row of small dark
+    /// icon glyphs. Returns None if no such menu is visible.
+    pub fn detect_selection_menu_delete(&self, sel: crate::touch::Rect) -> Option<(i32, i32)> {
+        let data = match &self.mode {
+            ScreenshotMode::Real { data, .. } if !data.is_empty() => data,
+            _ => return None,
+        };
+        let img = image::load_from_memory(data).ok()?.to_luma8();
+        Self::detect_selection_menu_delete_in(&img, sel)
+    }
+
+    /// Detection core of detect_selection_menu_delete, on a decoded
+    /// grayscale screenshot (separated for offline testing).
+    ///
+    /// The native menu renders as a wide rounded-rect border (~150x40, only
+    /// a few % of its area dark) with the four icon glyphs inside; the xovi
+    /// LLM/Draw buttons render as separate NARROW boxes next to it, so
+    /// requiring a wide hollow box excludes them, and the rightmost glyph
+    /// inside the wide box is always the trash icon (measured on-device).
+    pub fn detect_selection_menu_delete_in(img: &image::GrayImage, sel: crate::touch::Rect) -> Option<(i32, i32)> {
+        let (width, height) = (img.width() as i32, img.height() as i32);
+
+        let cx = sel.x + sel.w / 2;
+        let x0 = (cx - 220).max(0);
+        let x1 = (cx + 220).min(width - 1);
+
+        // The menu sits ~15-60px from the selection edge; check below first
+        // (xochitl's preference), then above.
+        let bands = [
+            (sel.y + sel.h + 2, (sel.y + sel.h + 110).min(height - 1)),
+            ((sel.y - 110).max(0), sel.y - 2),
+        ];
+
+        for (y0, y1) in bands {
+            if y1 <= y0 {
+                continue;
+            }
+            // Connected dark components inside the band window:
+            // (min_x, min_y, max_x, max_y, pixel_count) in screen coords
+            let win_w = (x1 - x0 + 1) as usize;
+            let win_h = (y1 - y0 + 1) as usize;
+            let dark: Vec<bool> = (0..win_h)
+                .flat_map(|wy| (0..win_w).map(move |wx| (wx, wy)))
+                .map(|(wx, wy)| img.get_pixel((x0 + wx as i32) as u32, (y0 + wy as i32) as u32).0[0] < 100)
+                .collect();
+            let mut visited = vec![false; dark.len()];
+            let mut comps: Vec<(i32, i32, i32, i32, u32)> = Vec::new();
+            for start in 0..dark.len() {
+                if !dark[start] || visited[start] {
+                    continue;
+                }
+                let (mut min_x, mut min_y, mut max_x, mut max_y) = (usize::MAX, usize::MAX, 0usize, 0usize);
+                let mut count = 0u32;
+                let mut stack = vec![start];
+                visited[start] = true;
+                while let Some(idx) = stack.pop() {
+                    count += 1;
+                    let (px, py) = (idx % win_w, idx / win_w);
+                    min_x = min_x.min(px);
+                    min_y = min_y.min(py);
+                    max_x = max_x.max(px);
+                    max_y = max_y.max(py);
+                    let mut try_push = |n: usize| {
+                        if dark[n] && !visited[n] {
+                            visited[n] = true;
+                            stack.push(n);
+                        }
+                    };
+                    if px > 0 {
+                        try_push(idx - 1);
+                    }
+                    if px < win_w - 1 {
+                        try_push(idx + 1);
+                    }
+                    if py > 0 {
+                        try_push(idx - win_w);
+                    }
+                    if py < win_h - 1 {
+                        try_push(idx + win_w);
+                    }
+                }
+                comps.push((
+                    x0 + min_x as i32,
+                    y0 + min_y as i32,
+                    x0 + max_x as i32,
+                    y0 + max_y as i32,
+                    count,
+                ));
+            }
+
+            // The menu border: wide, ~40 tall, hollow (border pixels only)
+            let boxes: Vec<_> = comps
+                .iter()
+                .filter(|&&(bx0, by0, bx1, by1, n)| {
+                    let (w, h) = (bx1 - bx0 + 1, by1 - by0 + 1);
+                    (100..=340).contains(&w) && (25..=70).contains(&h) && (n as f32) < (w * h) as f32 * 0.25
+                })
+                .collect();
+
+            for &&(bx0, by0, bx1, by1, _) in &boxes {
+                // Glyph fragments strictly inside the box interior
+                let icons: Vec<_> = comps
+                    .iter()
+                    .filter(|&&(ix0, iy0, ix1, iy1, n)| {
+                        n >= 4 && ix0 > bx0 + 2 && ix1 < bx1 - 2 && iy0 > by0 + 2 && iy1 < by1 - 2 && (ix1 - ix0) <= 40 && (iy1 - iy0) <= 40
+                    })
+                    .collect();
+                if icons.len() < 3 {
+                    continue;
+                }
+                // Rightmost glyph in the native menu = trash/delete
+                let &&(ix0, iy0, ix1, iy1, _) = icons.iter().max_by_key(|&&&(_, _, ix1, _, _)| ix1)?;
+                let (tx, ty) = ((ix0 + ix1) / 2, (iy0 + iy1) / 2);
+                debug!(
+                    "detect_selection_menu_delete: menu box ({},{})-({},{}), {} glyphs, delete at ({}, {})",
+                    bx0,
+                    by0,
+                    bx1,
+                    by1,
+                    icons.len(),
+                    tx,
+                    ty
+                );
+                return Some((tx, ty));
+            }
+        }
+        None
     }
 
     /// Return the screenshot cropped to `rect` (virtual 768x1024 coordinates)

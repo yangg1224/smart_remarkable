@@ -84,6 +84,45 @@ the existing `placement_slot`), so the `draw_sketch` tool callback in
 `main.rs` can pick the original box instead of the placement box when
 `selection_is_drawing` is true.
 
+### Image-generation mode (`--image-model`, "nano banana")
+
+LLM-authored SVG tops out at schematic, cartoonish line art — a text model
+writing path data can't produce concept-sketch-quality curves. Passing
+`--image-model` (default value `gemini-2.5-flash-image`, Google's
+"nano banana") reroutes the Draw button through an image-generation model:
+
+1. The chat LLM still classifies the selection (text vs. drawing) but now
+   writes an *image-generation prompt* instead of SVG
+   (`prompts/draw_image.json` + `prompts/tool_draw_sketch_image.json`,
+   registered under the same `draw_sketch` tool name).
+2. `src/image_gen.rs` calls the Gemini API with that prompt. For a
+   drawing selection, the cropped screenshot of the user's rough sketch is
+   attached (armed via `input_image_slot`, parallel to the placement slots),
+   so the model refines the actual sketch rather than imagining one. A
+   strict style suffix (pure black line art, white background, no
+   gray/stipple/fills) is appended in Rust so every generation is traceable.
+3. The returned PNG goes through `util::image_to_ink_bitmap` (grayscale,
+   ≤1024 px, threshold) and `Pen::draw_bitmap_centerline` (Zhang–Suen
+   thinning → skeleton tracing → speck filter → uniform fit into the
+   target box) — the same skeleton pipeline the SVG path uses.
+4. In-place erase happens only *after* generation succeeds, so an API
+   failure can't destroy the user's original sketch.
+
+Needs `GEMINI_API_KEY` or `GOOGLE_API_KEY` (or `--image-api-key`), separate
+from the chat model's key:
+
+```sh
+ANTHROPIC_API_KEY=sk-... GEMINI_API_KEY=... ./smart_remarkable --select-mode --image-model
+```
+
+Offline pipeline check without any API key (traces an existing image the
+same way the device would draw it):
+
+```sh
+TRACE_IMAGE_INPUT=sketch.png TRACE_IMAGE_OUTPUT=out.png \
+  cargo test --test trace_image -- --nocapture
+```
+
 ### Erasing before an in-place redraw
 
 Erasing turned out to need the pen's actual hardware eraser-tip signal:

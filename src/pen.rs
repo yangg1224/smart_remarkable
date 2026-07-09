@@ -77,20 +77,31 @@ impl Pen {
     /// eraser-tip signal (BTN_TOOL_RUBBER), which also means no toolbar
     /// tool switch is needed at all before calling this.
     pub fn erase_rect(&mut self, rect: Rect) -> Result<()> {
-        const ROW_SPACING: i32 = 10;
-        let margin = ROW_SPACING; // erase slightly past the lassoed box's edges
+        // The injected rubber's effective radius is only a few virtual px,
+        // so sweep densely, and add a perpendicular pass to catch ink that
+        // slips between rows (verified on-device: 10px single-pass left
+        // stripes of survivors).
+        const ROW_SPACING: i32 = 4;
+        let margin = 10; // erase slightly past the lassoed box's edges
         let x1 = rect.x - margin;
         let x2 = rect.x + rect.w + margin;
         let y_top = rect.y - margin;
         let y_bottom = rect.y + rect.h + margin;
 
         let mut y = y_top;
-        let mut left_to_right = true;
+        let mut flip = true;
         while y <= y_bottom {
-            let (from, to) = if left_to_right { ((x1, y), (x2, y)) } else { ((x2, y), (x1, y)) };
+            let (from, to) = if flip { ((x1, y), (x2, y)) } else { ((x2, y), (x1, y)) };
             self.draw_line_rubber_screen(from, to)?;
-            left_to_right = !left_to_right;
+            flip = !flip;
             y += ROW_SPACING;
+        }
+        let mut x = x1;
+        while x <= x2 {
+            let (from, to) = if flip { ((x, y_top), (x, y_bottom)) } else { ((x, y_bottom), (x, y_top)) };
+            self.draw_line_rubber_screen(from, to)?;
+            flip = !flip;
+            x += ROW_SPACING;
         }
         info!("erase_rect: erased {:?}", rect);
         Ok(())
@@ -256,15 +267,24 @@ impl Pen {
 
     fn draw_line_rubber(&mut self, (x1, y1): (i32, i32), (x2, y2): (i32, i32)) -> Result<()> {
         let length = ((x2 as f32 - x1 as f32).powi(2) + (y2 as f32 - y1 as f32).powi(2)).sqrt();
-        let steps = (length / 5.0).ceil() as i32;
+        let steps = (length / 5.0).ceil().max(1.0) as i32;
+        // Pace like the pen path (see draw_virtual_paths/draw_segment):
+        // xochitl drops tool-transition and move events sent as a raw burst,
+        // which made erase sweeps register only intermittently.
         self.rubber_down_at((x1, y1))?;
+        sleep(Duration::from_millis(3));
         for i in 0..=steps {
             let t = i as f32 / steps as f32;
             let x = (x1 as f32 + (x2 - x1) as f32 * t).round() as i32;
             let y = (y1 as f32 + (y2 - y1) as f32 * t).round() as i32;
             self.goto_xy((x, y))?;
+            if i % 100 == 99 {
+                sleep(Duration::from_millis(1));
+            }
         }
+        sleep(Duration::from_millis(3));
         self.rubber_up()?;
+        sleep(Duration::from_millis(3));
         Ok(())
     }
 
@@ -708,6 +728,70 @@ impl Pen {
         self.draw_virtual_paths(&paths)
     }
 
+    /// Draw an ink bitmap (e.g. a generated line-art image, already
+    /// thresholded) by thinning it to a 1-pixel skeleton, tracing the
+    /// skeleton to paths, and scaling those paths uniformly into `target`
+    /// (or into the full canvas with a margin when `target` is None).
+    /// The bitmap is consumed (thinned in place).
+    pub fn draw_bitmap_centerline(&mut self, bitmap: &mut Vec<Vec<bool>>, target: Option<Rect>) -> Result<()> {
+        use crate::skeleton;
+
+        skeleton::thin_zhang_suen(bitmap);
+        info!("draw_bitmap_centerline: thinning done");
+
+        let raw_paths = skeleton::trace_skeleton(bitmap);
+        info!("draw_bitmap_centerline: {} skeleton paths", raw_paths.len());
+
+        let mut paths: Vec<Vec<(f32, f32)>> = raw_paths.iter().map(|p| skeleton::smooth_path(p, 5)).collect();
+
+        // Drop specks: isolated dots and sub-4px fragments come from residual
+        // stipple/noise in the generated image and draw as ugly pen taps.
+        paths.retain(|p| {
+            let len: f32 = p.windows(2).map(|w| {
+                let (dx, dy) = (w[1].0 - w[0].0, w[1].1 - w[0].1);
+                (dx * dx + dy * dy).sqrt()
+            }).sum();
+            len >= 4.0
+        });
+        if paths.is_empty() {
+            return Err(anyhow::anyhow!("no drawable strokes after tracing"));
+        }
+
+        // Ink bounding box across all paths
+        let (mut min_x, mut min_y, mut max_x, mut max_y) = (f32::MAX, f32::MAX, f32::MIN, f32::MIN);
+        for p in &paths {
+            for &(x, y) in p {
+                min_x = min_x.min(x);
+                min_y = min_y.min(y);
+                max_x = max_x.max(x);
+                max_y = max_y.max(y);
+            }
+        }
+        let (bw, bh) = ((max_x - min_x).max(1.0), (max_y - min_y).max(1.0));
+
+        const MARGIN: f32 = 24.0;
+        let (rx, ry, rw, rh) = match target {
+            Some(r) => (r.x as f32, r.y as f32, r.w as f32, r.h as f32),
+            None => (MARGIN, MARGIN, VIRTUAL_WIDTH as f32 - 2.0 * MARGIN, VIRTUAL_HEIGHT as f32 - 2.0 * MARGIN),
+        };
+        let scale = (rw / bw).min(rh / bh);
+        let tx = rx + (rw - bw * scale) / 2.0 - min_x * scale;
+        let ty = ry + (rh - bh * scale) / 2.0 - min_y * scale;
+        info!(
+            "draw_bitmap_centerline: {} strokes, bbox ({:.0}, {:.0}, {:.0}, {:.0}) -> rect ({:.0}, {:.0}, {:.0}, {:.0}), scale {:.3}",
+            paths.len(), min_x, min_y, bw, bh, rx, ry, rw, rh, scale
+        );
+
+        let clamp_x = |v: f32| v.clamp(0.0, VIRTUAL_WIDTH as f32 - 1.0);
+        let clamp_y = |v: f32| v.clamp(0.0, VIRTUAL_HEIGHT as f32 - 1.0);
+        let fitted: Vec<Vec<(f32, f32)>> = paths
+            .iter()
+            .map(|p| p.iter().map(|&(x, y)| (clamp_x(x * scale + tx), clamp_y(y * scale + ty))).collect())
+            .collect();
+
+        self.draw_virtual_paths(&fitted)
+    }
+
     /// Draw SVG using path tracing, passing SVG directly to svg2polylines without usvg preprocessing.
     /// Better for geometric shapes (lines, rects, circles), but text won't render.
     pub fn draw_svg_paths_raw(&mut self, svg_data: &str) -> Result<()> {
@@ -718,6 +802,9 @@ impl Pen {
     }
 
     fn virtual_to_input(&self, (x, y): (i32, i32)) -> (i32, i32) {
+        // Planning happens in user space (screenshots are normalized to it);
+        // mirror back to panel space when the UI is rotated 180°
+        let (x, y) = crate::util::maybe_rot180_virtual((x, y));
         // Swap and normalize the coordinates
         let x_normalized = x as f32 / VIRTUAL_WIDTH as f32;
         let y_normalized = y as f32 / VIRTUAL_HEIGHT as f32;

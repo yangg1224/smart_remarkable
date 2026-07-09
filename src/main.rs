@@ -15,13 +15,17 @@ use smart_remarkable::{
     coordinator::{self, CoordinatorChannels, ProgressState},
     device::DeviceModel,
     embedded_assets::load_config,
+    image_gen::ImageGen,
     keyboard::Keyboard,
     llm_engine::{anthropic::Anthropic, google::Google, openai::OpenAI, LLMEngine},
     pen::Pen,
     simulation::SimulationConfig,
     status::SmartRemarkableStatus,
     touch::{PenTool, Rect, Touch, TriggerCorner, TriggerSource},
-    util::{build_svg_from_lines, fit_lines_to_rect, fit_svg_to_rect, setup_uinput, svg_to_bitmap, write_bitmap_to_file, OptionMap},
+    util::{
+        build_svg_from_lines, fit_lines_to_rect, fit_svg_to_rect, image_to_ink_bitmap, setup_uinput, svg_to_bitmap, upscale_png_b64,
+        write_bitmap_to_file, OptionMap,
+    },
     web_server::start_web_server,
 };
 
@@ -119,6 +123,18 @@ pub struct Args {
     #[arg(long)]
     select_mode: bool,
 
+    /// Generate Draw-button sketches with an image-generation model instead
+    /// of LLM-authored SVG. Pass a model name, or no value for the default
+    /// (gemini-2.5-flash-image, "nano banana"). Needs GEMINI_API_KEY or
+    /// GOOGLE_API_KEY (or --image-api-key).
+    #[arg(long, num_args = 0..=1, default_missing_value = "gemini-2.5-flash-image")]
+    image_model: Option<String>,
+
+    /// API key for the image-generation model;
+    /// or use environment variable GEMINI_API_KEY / GOOGLE_API_KEY
+    #[arg(long)]
+    image_api_key: Option<String>,
+
     /// Enable web search (for Anthropic models)
     #[arg(long)]
     web_search: bool,
@@ -192,6 +208,10 @@ pub struct Args {
     /// Debug: draw the SVG in the given file with the centerline renderer.
     #[arg(long)]
     debug_svg: Option<String>,
+
+    /// Debug: erase the rect "x1,y1,x2,y2" (virtual coords) with the rubber.
+    #[arg(long)]
+    debug_erase: Option<String>,
 }
 
 #[tokio::main]
@@ -205,6 +225,21 @@ async fn main() -> Result<()> {
         .init();
 
     setup_uinput()?;
+
+    // Debug commands inject input directly; detect UI rotation first so
+    // their coordinates land where the user sees them (best effort — only
+    // possible on a real device with xochitl running)
+    let debug_mode = args.debug_type.is_some()
+        || args.debug_tap.is_some()
+        || args.debug_drag.is_some()
+        || args.debug_lasso.is_some()
+        || args.debug_svg.is_some()
+        || args.debug_erase.is_some();
+    if debug_mode {
+        if let Ok(mut ss) = smart_remarkable::screenshot::Screenshot::new() {
+            let _ = ss.take_screenshot();
+        }
+    }
 
     if let Some(spec) = &args.debug_type {
         return debug_type(spec).await;
@@ -258,6 +293,16 @@ async fn main() -> Result<()> {
         let mut pen = Pen::new(false);
         info!("debug_svg: drawing {} with centerline renderer", path);
         pen.draw_svg_centerline(&svg_data)?;
+        return Ok(());
+    }
+
+    if let Some(spec) = &args.debug_erase {
+        let c: Vec<i32> = spec.split(',').map(|s| s.trim().parse().unwrap()).collect();
+        let rect = Rect::from_corners((c[0], c[1]), (c[2], c[3]));
+        let mut pen = Pen::new(false);
+        info!("debug_erase: erasing {:?}", rect);
+        pen.erase_rect(rect)?;
+        sleep(Duration::from_millis(500)).await;
         return Ok(());
     }
 
@@ -336,6 +381,43 @@ fn draw_svg(svg_data: &str, keyboard: &mut Keyboard, pen: &mut Pen, save_bitmap:
         pen.draw_svg_centerline(svg_data)?;
     }
     Ok(())
+}
+
+/// Delete the currently-lassoed strokes via xochitl's own selection menu
+/// (tap its trash icon): exact — removes only the selected ink, no residue —
+/// unlike sweeping the bounding box with the rubber. Verifies the marquee is
+/// gone afterwards. Returns false if the menu wasn't found or the selection
+/// survived, so the caller can fall back to the rubber erase.
+fn native_delete_selection(sel: Rect) -> bool {
+    use smart_remarkable::screenshot::Screenshot;
+
+    let take = || -> Option<Screenshot> {
+        let mut ss = Screenshot::new().ok()?;
+        ss.take_screenshot().ok()?;
+        Some(ss)
+    };
+
+    let Some(tap_point) = take().and_then(|ss| ss.detect_selection_menu_delete(sel)) else {
+        log::warn!("native_delete_selection: selection menu not found near {:?}", sel);
+        return false;
+    };
+    log::info!("native_delete_selection: tapping delete at {:?}", tap_point);
+    let tapped = tokio::task::block_in_place(|| {
+        tokio::runtime::Handle::current().block_on(async { Touch::new(false, TriggerCorner::UpperRight).tap(tap_point).await })
+    });
+    if tapped.is_err() {
+        return false;
+    }
+    std::thread::sleep(Duration::from_millis(600));
+
+    // Verify: the marquee (and thus the selected ink) should be gone
+    match take().map(|ss| ss.detect_selection_rect()) {
+        Some(None) => true,
+        _ => {
+            log::warn!("native_delete_selection: marquee still present after delete tap");
+            false
+        }
+    }
 }
 
 fn determine_engine_name(engine_arg: &Option<String>, model: &str) -> Result<String> {
@@ -551,6 +633,10 @@ async fn run_smart_remarkable_loop(
     // draw_sketch tool can redraw into it (erasing the old ink first)
     // instead of the answer-placement box below it
     let selection_slot: Arc<Mutex<Option<Rect>>> = Arc::new(Mutex::new(None));
+    // Slot holding the base64 PNG of the current input (cropped selection),
+    // so the image-generation draw tool can attach it to its request when
+    // refining an existing sketch
+    let input_image_slot: Arc<Mutex<Option<String>>> = Arc::new(Mutex::new(None));
 
     // Register tools
     register_tools(
@@ -560,6 +646,7 @@ async fn run_smart_remarkable_loop(
         Arc::clone(&touch),
         Arc::clone(&placement_slot),
         Arc::clone(&selection_slot),
+        Arc::clone(&input_image_slot),
         &config,
     )?;
 
@@ -633,6 +720,7 @@ async fn run_smart_remarkable_loop(
                     let touch_clone = Arc::clone(&touch);
                     let placement_slot_clone = Arc::clone(&placement_slot);
                     let selection_slot_clone = Arc::clone(&selection_slot);
+                    let input_image_slot_clone = Arc::clone(&input_image_slot);
                     tokio::spawn(async move {
                         coordinator::processing_task(
                             config_clone,
@@ -643,6 +731,7 @@ async fn run_smart_remarkable_loop(
                             selection,
                             placement_slot_clone,
                             selection_slot_clone,
+                            input_image_slot_clone,
                             trigger_source,
                         ).await
                     })
@@ -732,6 +821,7 @@ fn register_tools(
     _touch: Arc<TokioRwLock<Touch>>,
     placement_slot: Arc<Mutex<Option<Rect>>>,
     selection_slot: Arc<Mutex<Option<Rect>>>,
+    input_image_slot: Arc<Mutex<Option<String>>>,
     config: &Config,
 ) -> Result<()> {
     use serde_json::Value as json;
@@ -978,32 +1068,165 @@ fn register_tools(
             }
         }
 
-        let tool_config_draw_sketch = load_config("tool_draw_sketch.json");
-        let render_sketch = make_render_sketch(
-            output_file.clone(),
-            save_bitmap.clone(),
-            no_draw,
-            test_mode,
-            Arc::clone(&keyboard),
-            Arc::clone(&pen),
-            Arc::clone(&placement_slot),
-            Arc::clone(&selection_slot),
-        );
-        engine.register_tool(
-            "draw_sketch",
-            serde_json::from_str::<serde_json::Value>(tool_config_draw_sketch.as_str())?,
-            Box::new(move |arguments: json| {
-                let svg_data = match arguments["svg"].as_str() {
-                    Some(svg) => svg,
-                    None => {
-                        log::error!("draw_sketch tool called without valid 'svg' argument");
+        if let Some(image_model) = &config.image_model {
+            // Image-generation mode: the LLM plans the sketch (writes an
+            // image prompt), nano banana renders it, and the resulting
+            // line art is skeleton-traced into pen strokes. Much higher
+            // drawing quality than LLM-authored SVG.
+            let image_gen = Arc::new(ImageGen::new(image_model, config.image_api_key.as_deref(), None)?);
+            let output_file = output_file.clone();
+            let save_bitmap = save_bitmap.clone();
+            let keyboard = Arc::clone(&keyboard);
+            let pen = Arc::clone(&pen);
+            let placement_slot = Arc::clone(&placement_slot);
+            let selection_slot = Arc::clone(&selection_slot);
+            let input_image_slot = Arc::clone(&input_image_slot);
+
+            let tool_config = load_config("tool_draw_sketch_image.json");
+            engine.register_tool(
+                "draw_sketch",
+                serde_json::from_str::<serde_json::Value>(tool_config.as_str())?,
+                Box::new(move |arguments: json| {
+                    let image_prompt = match arguments["image_prompt"].as_str() {
+                        Some(p) => p,
+                        None => {
+                            log::error!("draw_sketch tool called without valid 'image_prompt' argument");
+                            return;
+                        }
+                    };
+                    let redraw_in_place = arguments["selection_is_drawing"].as_bool().unwrap_or(false);
+
+                    let selection_rect = selection_slot.lock().ok().and_then(|mut slot| slot.take());
+                    let placement_rect = placement_slot.lock().ok().and_then(|mut slot| slot.take());
+                    let input_image = input_image_slot.lock().ok().and_then(|mut slot| slot.take());
+                    let target_rect = if redraw_in_place {
+                        selection_rect.or(placement_rect)
+                    } else {
+                        placement_rect.or(selection_rect)
+                    };
+
+                    if let Some(output_file) = &output_file {
+                        if let Err(e) = std::fs::write(output_file, image_prompt) {
+                            log::error!("Failed to write output file: {}", e);
+                        }
+                    }
+
+                    // Only attach the user's sketch when refining a drawing;
+                    // for text selections the prompt alone drives generation.
+                    // Lasso crops are small (a few hundred px) — upscale so
+                    // the image model can actually read the sketch.
+                    let image_input = if redraw_in_place {
+                        input_image.map(|img| upscale_png_b64(&img, 768))
+                    } else {
+                        None
+                    };
+                    let image_bytes = tokio::task::block_in_place(|| {
+                        tokio::runtime::Handle::current().block_on(image_gen.generate(image_prompt, image_input.as_deref()))
+                    });
+                    let image_bytes = match image_bytes {
+                        Ok(bytes) => bytes,
+                        Err(e) => {
+                            log::error!("Image generation failed: {}", e);
+                            return;
+                        }
+                    };
+
+                    if let Some(save_bitmap) = &save_bitmap {
+                        if let Err(e) = std::fs::write(save_bitmap, &image_bytes) {
+                            log::error!("Failed to save generated image: {}", e);
+                        }
+                    }
+
+                    let mut bitmap = match image_to_ink_bitmap(&image_bytes, 1024) {
+                        Ok(b) => b,
+                        Err(e) => {
+                            log::error!("Failed to decode generated image: {}", e);
+                            return;
+                        }
+                    };
+
+                    if no_draw {
                         return;
                     }
-                };
-                let redraw_in_place = arguments["selection_is_drawing"].as_bool().unwrap_or(false);
-                render_sketch(svg_data, redraw_in_place);
-            }),
-        );
+
+                    // Erase the original ink only now, after generation
+                    // succeeded, so an API failure doesn't destroy the
+                    // user's sketch. Prefer xochitl's own selection delete
+                    // (exact, no residue); fall back to rubber sweeps if the
+                    // selection menu can't be found.
+                    if redraw_in_place && !test_mode {
+                        if let Some(rect) = target_rect {
+                            if !native_delete_selection(rect) {
+                                log::info!("Falling back to rubber erase of {:?}", rect);
+                                let mut pen = lock!(pen);
+                                if let Err(e) = pen.erase_rect(rect) {
+                                    log::error!("Failed to erase original drawing before redraw: {}", e);
+                                }
+                                drop(pen);
+                            }
+                            std::thread::sleep(Duration::from_millis(300));
+                        }
+                    }
+
+                    let previous_tool = if !test_mode {
+                        tokio::task::block_in_place(|| {
+                            tokio::runtime::Handle::current().block_on(async {
+                                Touch::new(false, TriggerCorner::UpperRight).switch_to_tool(PenTool::Ballpoint).await
+                            })
+                        })
+                        .unwrap_or(PenTool::Unknown)
+                    } else {
+                        PenTool::Unknown
+                    };
+
+                    let mut keyboard = lock!(keyboard);
+                    if let Err(e) = keyboard.progress_end() {
+                        log::error!("Failed to end progress: {}", e);
+                    }
+                    drop(keyboard);
+                    let mut pen = lock!(pen);
+                    if let Err(e) = pen.draw_bitmap_centerline(&mut bitmap, target_rect) {
+                        log::error!("Failed to draw generated sketch: {}", e);
+                    }
+                    drop(pen);
+
+                    if !test_mode && previous_tool != PenTool::Unknown {
+                        tokio::task::block_in_place(|| {
+                            tokio::runtime::Handle::current()
+                                .block_on(async { Touch::new(false, TriggerCorner::UpperRight).restore_tool(previous_tool).await })
+                        })
+                        .ok();
+                    }
+                }),
+            );
+        } else {
+            let tool_config_draw_sketch = load_config("tool_draw_sketch.json");
+            let render_sketch = make_render_sketch(
+                output_file.clone(),
+                save_bitmap.clone(),
+                no_draw,
+                test_mode,
+                Arc::clone(&keyboard),
+                Arc::clone(&pen),
+                Arc::clone(&placement_slot),
+                Arc::clone(&selection_slot),
+            );
+            engine.register_tool(
+                "draw_sketch",
+                serde_json::from_str::<serde_json::Value>(tool_config_draw_sketch.as_str())?,
+                Box::new(move |arguments: json| {
+                    let svg_data = match arguments["svg"].as_str() {
+                        Some(svg) => svg,
+                        None => {
+                            log::error!("draw_sketch tool called without valid 'svg' argument");
+                            return;
+                        }
+                    };
+                    let redraw_in_place = arguments["selection_is_drawing"].as_bool().unwrap_or(false);
+                    render_sketch(svg_data, redraw_in_place);
+                }),
+            );
+        }
 
         // draw_answer: structured content, no LLM-computed coordinates. Fixes
         // the garbled/overlapping-text bug caused by relying on the model to

@@ -4,3 +4,6 @@
 .aider*
 
 **/.claude/settings.local.json
+/.claude-worktrees
+xovi-ext/llmbutton/*.o
+xovi-ext/llmbutton/*.so
