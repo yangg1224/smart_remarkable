@@ -39,6 +39,8 @@ the original strokes are removed via xochitl's own selection-delete before
 the refined version draws in their place. Needs `GEMINI_API_KEY` or
 `GOOGLE_API_KEY`.
 
+<img src="docs/image-draw-demo.gif" width="300">
+
 ## Contents
 
 - [Features](#features)
