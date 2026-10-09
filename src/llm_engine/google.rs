@@ -1,4 +1,4 @@
-use super::{status_update, LLMEngine, Tool};
+use super::{fail, required_model, status_update, LLMEngine, Tool};
 use crate::cancellation::{with_cancellation, SmartRemarkableCancellation};
 use crate::util::{option_or_env, option_or_env_fallback, OptionMap};
 use anyhow::Result;
@@ -30,18 +30,18 @@ impl Google {
 
 #[async_trait::async_trait]
 impl LLMEngine for Google {
-    fn new(options: &OptionMap) -> Self {
-        let api_key = option_or_env(options, "api_key", "GOOGLE_API_KEY");
+    fn new(options: &OptionMap) -> Result<Self> {
+        let api_key = option_or_env(options, "api_key", "GOOGLE_API_KEY")?;
         let base_url = option_or_env_fallback(options, "base_url", "GOOGLE_BASE_URL", "https://generativelanguage.googleapis.com");
-        let model = options.get("model").unwrap().to_string();
+        let model = required_model(options)?;
 
-        Self {
+        Ok(Self {
             model,
             base_url,
             api_key,
             tools: Vec::new(),
             content: Vec::new(),
-        }
+        })
     }
 
     fn register_tool(&mut self, name: &str, definition: json, callback: Box<dyn FnMut(json) + Send>) {
@@ -118,13 +118,19 @@ impl LLMEngine for Google {
         // Notify that we're processing the response
         status_update!(status_callback, super::ModelExecutionStatus::ProcessingResponse);
 
-        let tool_calls = &json["candidates"][0]["content"]["parts"];
+        // Gemini may put text (e.g. reasoning) before the function call, so use the
+        // first part that actually carries one rather than blindly taking parts[0].
+        let tool_call = json["candidates"][0]["content"]["parts"]
+            .as_array()
+            .and_then(|parts| parts.iter().find(|part| part.get("functionCall").is_some()));
 
-        if let Some(tool_call) = tool_calls.get(0) {
+        if let Some(tool_call) = tool_call {
             // Notify that we're calling tools
             status_update!(status_callback, super::ModelExecutionStatus::CallingTools);
 
-            let function_name = tool_call["functionCall"]["name"].as_str().unwrap();
+            let Some(function_name) = tool_call["functionCall"]["name"].as_str() else {
+                return Err(fail(&mut status_callback, "functionCall in response has no name"));
+            };
             let function_input = &tool_call["functionCall"]["args"];
             let tool = self.tools.iter_mut().find(|tool| tool.name == function_name);
 
@@ -152,5 +158,51 @@ impl LLMEngine for Google {
             );
             Err(anyhow::anyhow!("No tool calls found in response"))
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::llm_engine::test_support::{last_is_error, mock_server, recording_callback};
+    use std::collections::HashMap;
+    use std::sync::{Arc, Mutex};
+
+    fn engine(base_url: String) -> (Google, Arc<Mutex<Option<json>>>) {
+        let options: OptionMap = HashMap::from([
+            ("model".to_string(), "test-model".to_string()),
+            ("api_key".to_string(), "test-key".to_string()),
+            ("base_url".to_string(), base_url),
+        ]);
+        let mut engine = Google::new(&options).unwrap();
+        let got = Arc::new(Mutex::new(None));
+        let got_clone = Arc::clone(&got);
+        engine.register_tool(
+            "draw_text",
+            json!({ "name": "draw_text" }),
+            Box::new(move |input| *got_clone.lock().unwrap() = Some(input)),
+        );
+        (engine, got)
+    }
+
+    #[tokio::test]
+    async fn finds_function_call_after_leading_text_part() {
+        let base = mock_server(
+            200,
+            r#"{"candidates":[{"content":{"parts":[{"text":"thinking..."},{"functionCall":{"name":"draw_text","args":{"text":"hi"}}}]}}]}"#,
+        )
+        .await;
+        let (mut engine, got) = engine(base);
+        engine.execute(&SmartRemarkableCancellation::new(), None).await.unwrap();
+        assert_eq!(got.lock().unwrap().as_ref().unwrap()["text"], "hi");
+    }
+
+    #[tokio::test]
+    async fn function_call_without_name_reports_error_instead_of_panicking() {
+        let base = mock_server(200, r#"{"candidates":[{"content":{"parts":[{"functionCall":{"args":{}}}]}}]}"#).await;
+        let (mut engine, _) = engine(base);
+        let (cb, seen) = recording_callback();
+        assert!(engine.execute(&SmartRemarkableCancellation::new(), Some(cb)).await.is_err());
+        assert!(last_is_error(&seen));
     }
 }

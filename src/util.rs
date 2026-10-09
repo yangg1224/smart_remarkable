@@ -72,7 +72,7 @@ pub fn svg_to_bitmap(svg_data: &str, width: u32, height: u32) -> Result<Vec<Vec<
         }
     };
 
-    let mut pixmap = Pixmap::new(width, height).unwrap();
+    let mut pixmap = Pixmap::new(width, height).ok_or_else(|| anyhow::anyhow!("invalid bitmap size {}x{}", width, height))?;
     // Scale transform so the SVG fills the requested bitmap size (not just its intrinsic size)
     let svg_size = tree.size();
     let scale_x = width as f32 / svg_size.width();
@@ -105,7 +105,7 @@ pub fn svg_to_bitmap_threshold(svg_data: &str, width: u32, height: u32, threshol
         }
     };
 
-    let mut pixmap = Pixmap::new(width, height).unwrap();
+    let mut pixmap = Pixmap::new(width, height).ok_or_else(|| anyhow::anyhow!("invalid bitmap size {}x{}", width, height))?;
     let svg_size = tree.size();
     let scale_x = width as f32 / svg_size.width();
     let scale_y = height as f32 / svg_size.height();
@@ -208,7 +208,7 @@ pub fn svg_to_alpha_bitmap(svg_data: &str, width: u32, height: u32) -> Result<Ve
         }
     };
 
-    let mut pixmap = Pixmap::new(width, height).unwrap();
+    let mut pixmap = Pixmap::new(width, height).ok_or_else(|| anyhow::anyhow!("invalid bitmap size {}x{}", width, height))?;
     let svg_size = tree.size();
     let scale_x = width as f32 / svg_size.width();
     let scale_y = height as f32 / svg_size.height();
@@ -469,13 +469,13 @@ pub fn write_bitmap_to_file(bitmap: &[Vec<bool>], filename: &str) -> Result<()> 
     Ok(())
 }
 
-pub fn option_or_env(options: &OptionMap, key: &str, env_key: &str) -> String {
-    let option = options.get(key);
-    if let Some(value) = option {
-        value.to_string()
-    } else {
-        std::env::var(env_key).unwrap().to_string()
+/// Read a required option, falling back to an environment variable. Errors (instead of
+/// panicking) with a message naming both when neither is set.
+pub fn option_or_env(options: &OptionMap, key: &str, env_key: &str) -> Result<String> {
+    if let Some(value) = options.get(key) {
+        return Ok(value.to_string());
     }
+    std::env::var(env_key).map_err(|_| anyhow::anyhow!("missing {}: set the {} environment variable or pass it in the config", key, env_key))
 }
 
 pub fn option_or_env_fallback(options: &OptionMap, key: &str, env_key: &str, fallback: &str) -> String {
@@ -491,6 +491,15 @@ pub fn option_or_env_fallback(options: &OptionMap, key: &str, env_key: &str, fal
 mod tests {
     use super::*;
     use crate::touch::Rect;
+
+    #[test]
+    fn option_or_env_prefers_option_and_errors_when_both_missing() {
+        let options: OptionMap = std::collections::HashMap::from([("api_key".to_string(), "from-option".to_string())]);
+        assert_eq!(option_or_env(&options, "api_key", "SMART_REMARKABLE_TEST_UNSET_VAR").unwrap(), "from-option");
+
+        let err = option_or_env(&OptionMap::new(), "api_key", "SMART_REMARKABLE_TEST_UNSET_VAR").unwrap_err();
+        assert!(err.to_string().contains("SMART_REMARKABLE_TEST_UNSET_VAR"), "{}", err);
+    }
 
     #[test]
     fn build_svg_from_lines_never_overlaps_regardless_of_model_input() {
@@ -653,8 +662,10 @@ pub fn setup_uinput() -> Result<()> {
     }
 
     // Check if uinput module is loaded by looking at the lsmod output
-    let output = std::process::Command::new("lsmod").output().expect("Failed to execute lsmod");
-    let output_str = std::str::from_utf8(&output.stdout).unwrap();
+    let output = std::process::Command::new("lsmod")
+        .output()
+        .map_err(|e| anyhow::anyhow!("failed to run lsmod: {}", e))?;
+    let output_str = String::from_utf8_lossy(&output.stdout);
     if output_str.contains("uinput") {
         debug!("uinput module already loaded");
     } else {
@@ -676,14 +687,20 @@ pub fn setup_uinput() -> Result<()> {
         // let target_module_filename = format!("rmpp/uinput-{short_version}.ko");
 
         // Use the function from embedded_assets module to get the module data
-        let uinput_module_data = get_uinput_module_data(&short_version).unwrap_or_else(|| panic!("Uinput module for version {} not found", short_version));
+        let uinput_module_data = get_uinput_module_data(&short_version).ok_or_else(|| {
+            anyhow::anyhow!(
+                "no bundled uinput module for reMarkable OS {} (IMG_VERSION={}); pen/touch injection needs /dev/uinput",
+                short_version,
+                img_version
+            )
+        })?;
         let raw_uinput_module_data = uinput_module_data.as_slice();
         let mut uinput_module_file = std::fs::File::create("/tmp/uinput.ko")?;
         uinput_module_file.write_all(raw_uinput_module_data)?;
         uinput_module_file.flush()?;
         drop(uinput_module_file);
         let output = std::process::Command::new("insmod").arg("/tmp/uinput.ko").output()?;
-        let output_str = std::str::from_utf8(&output.stderr).unwrap();
+        let output_str = String::from_utf8_lossy(&output.stderr);
         info!("insmod output: {}", output_str);
     }
 

@@ -446,9 +446,9 @@ fn determine_engine_name(engine_arg: &Option<String>, model: &str) -> Result<Str
 
 fn create_engine(engine_name: &str, engine_options: &OptionMap) -> Result<Box<dyn LLMEngine>> {
     match engine_name {
-        "openai" => Ok(Box::new(OpenAI::new(engine_options))),
-        "anthropic" => Ok(Box::new(Anthropic::new(engine_options))),
-        "google" => Ok(Box::new(Google::new(engine_options))),
+        "openai" => Ok(Box::new(OpenAI::new(engine_options)?)),
+        "anthropic" => Ok(Box::new(Anthropic::new(engine_options)?)),
+        "google" => Ok(Box::new(Google::new(engine_options)?)),
         _ => Err(anyhow::anyhow!(
             "Unknown engine '{}'. Supported engines: openai, anthropic, google",
             engine_name

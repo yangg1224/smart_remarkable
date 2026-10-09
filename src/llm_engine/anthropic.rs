@@ -1,4 +1,4 @@
-use super::{status_update, LLMEngine, Tool};
+use super::{fail, required_model, status_update, LLMEngine, Tool};
 use crate::cancellation::{with_cancellation, SmartRemarkableCancellation};
 use crate::util::{option_or_env, option_or_env_fallback, OptionMap};
 use anyhow::Result;
@@ -33,15 +33,15 @@ impl Anthropic {
 
 #[async_trait::async_trait]
 impl LLMEngine for Anthropic {
-    fn new(options: &OptionMap) -> Self {
-        let api_key = option_or_env(options, "api_key", "ANTHROPIC_API_KEY");
+    fn new(options: &OptionMap) -> Result<Self> {
+        let api_key = option_or_env(options, "api_key", "ANTHROPIC_API_KEY")?;
         let base_url = option_or_env_fallback(options, "base_url", "ANTHROPIC_BASE_URL", "https://api.anthropic.com");
-        let model = options.get("model").unwrap().to_string();
+        let model = required_model(options)?;
         let web_search = options.get("web_search").is_some_and(|v| v == "true");
         let thinking = options.get("thinking").is_some_and(|v| v == "true");
         let thinking_tokens = options.get("thinking_tokens").and_then(|v| v.parse::<u32>().ok()).unwrap_or(5000);
 
-        Self {
+        Ok(Self {
             model,
             base_url,
             api_key,
@@ -50,7 +50,7 @@ impl LLMEngine for Anthropic {
             web_search,
             thinking,
             thinking_tokens,
-        }
+        })
     }
 
     fn register_tool(&mut self, name: &str, definition: json, callback: Box<dyn FnMut(json) + Send>) {
@@ -162,7 +162,9 @@ impl LLMEngine for Anthropic {
                 "tool_use" => {
                     // Notify that we're calling tools
                     status_update!(status_callback, super::ModelExecutionStatus::CallingTools);
-                    let function_name = content_item["name"].as_str().unwrap();
+                    let Some(function_name) = content_item["name"].as_str() else {
+                        return Err(fail(&mut status_callback, "tool_use block in response has no name"));
+                    };
                     let function_input = &content_item["input"];
                     let tool = self.tools.iter_mut().find(|tool| tool.name == function_name);
 
@@ -205,5 +207,26 @@ impl LLMEngine for Anthropic {
             super::ModelExecutionStatus::Error("No tool calls found in response".to_string())
         );
         Err(anyhow::anyhow!("No tool calls found in response"))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::llm_engine::test_support::{last_is_error, mock_server, recording_callback};
+    use std::collections::HashMap;
+
+    #[tokio::test]
+    async fn tool_use_without_name_reports_error_instead_of_panicking() {
+        let base = mock_server(200, r#"{"content":[{"type":"tool_use","input":{}}]}"#).await;
+        let options: OptionMap = HashMap::from([
+            ("model".to_string(), "test-model".to_string()),
+            ("api_key".to_string(), "test-key".to_string()),
+            ("base_url".to_string(), base),
+        ]);
+        let mut engine = Anthropic::new(&options).unwrap();
+        let (cb, seen) = recording_callback();
+        assert!(engine.execute(&SmartRemarkableCancellation::new(), Some(cb)).await.is_err());
+        assert!(last_is_error(&seen));
     }
 }
