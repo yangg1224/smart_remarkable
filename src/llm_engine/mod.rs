@@ -1,5 +1,6 @@
 pub mod anthropic;
 pub mod google;
+pub mod http;
 pub mod openai;
 
 use crate::cancellation::SmartRemarkableCancellation;

@@ -1,8 +1,8 @@
+use crate::llm_engine::http;
 use anyhow::{anyhow, Result};
 use base64::prelude::*;
 use log::{debug, info};
 use serde_json::{json, Value};
-use std::time::Duration;
 
 /// Google's image-generation model ("nano banana"). Used when --image-model
 /// is set; the chat LLM plans the drawing, this model renders it.
@@ -59,21 +59,16 @@ impl ImageGen {
 
         info!("ImageGen: requesting {} image (input image attached: {})", self.model, input_png_b64.is_some());
 
-        let client = reqwest::Client::builder().timeout(Duration::from_secs(180)).build()?;
-        let response = client
+        let response = http::client()
             .post(format!("{}/v1beta/models/{}:generateContent", self.base_url, self.model))
             .header("Content-Type", "application/json")
             .header("x-goog-api-key", &self.api_key)
             .json(&body)
             .send()
-            .await?;
+            .await
+            .map_err(http::send_error)?;
 
-        let status = response.status();
-        let body_text = response.text().await?;
-        if !status.is_success() {
-            let detail: String = body_text.chars().take(500).collect();
-            return Err(anyhow!("image API error {}: {}", status, detail));
-        }
+        let body_text = http::read_body(response).await.map_err(|e| anyhow!("image {}", e))?;
 
         let json: Value = serde_json::from_str(&body_text)?;
         debug!("ImageGen response keys: {:?}", json.as_object().map(|o| o.keys().collect::<Vec<_>>()));

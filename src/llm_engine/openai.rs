@@ -97,20 +97,16 @@ impl LLMEngine for OpenAI {
 
         // Create async HTTP request with cancellation support
         let request_future = async {
-            let client = reqwest::Client::new();
-            let response = client
+            let response = super::http::client()
                 .post(format!("{}/v1/chat/completions", self.base_url))
                 .header("Authorization", format!("Bearer {}", self.api_key))
                 .header("Content-Type", "application/json")
                 .json(&body)
                 .send()
-                .await?;
+                .await
+                .map_err(super::http::send_error)?;
 
-            if !response.status().is_success() {
-                return Err(anyhow::anyhow!("API Error: {}", response.status()));
-            }
-
-            let body_text = response.text().await?;
+            let body_text = super::http::read_body(response).await?;
             let json: json = serde_json::from_str(&body_text)?;
             Ok(json)
         };
