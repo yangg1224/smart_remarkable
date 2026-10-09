@@ -6,14 +6,19 @@
 #include <unistd.h>
 #include <dlfcn.h>
 
-// llmbutton — Phase 2: READ-ONLY probe.
+// llmbutton: injects "LLM" and "Draw" buttons beside xochitl's selection menu.
 //
-// Confirms that xochitl's QtQuick class names (SceneController, DocumentView,
-// SceneSelectionHandler, SelectionContextualMenu, ...) resolve the same way on this
-// Paper Pro (Qt 6.11) as they did on the rM2 (Qt 6.x) that inkling was built against,
-// before Phase 3 risks injecting a UI element. Nothing is mutated: this just walks the
-// live QtQuick visual tree periodically and logs what it finds to stderr (captured by
-// `journalctl -u xochitl`).
+// Every few seconds (on xochitl's GUI thread) this walks the live QtQuick visual tree
+// to find the SelectionContextualMenu, then creates two small QML buttons next to it
+// at runtime and keeps them positioned/visible with the menu. A tap sets a QML
+// property; the next probe sees it and touches /tmp/llm_button_trigger or
+// /tmp/draw_button_trigger, which the smart_remarkable binary polls for and consumes.
+// Diagnostics go to stderr (captured by `journalctl -u xochitl`).
+//
+// This started as a read-only probe confirming that xochitl's QtQuick class names
+// (SceneController, DocumentView, SceneSelectionHandler, SelectionContextualMenu, ...)
+// resolve the same way on the Paper Pro (Qt 6.11) as on the rM2 that inkling was built
+// against; the probe/walk code below is that, the button injection was added on top.
 //
 // Pattern and mangled dlsym symbol names lifted from nathanmarlor/inkling's
 // xovi-ext/inklingfb/main.c (MIT). Those symbols are Itanium C++ mangled Qt6 API names —

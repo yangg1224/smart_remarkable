@@ -1,5 +1,4 @@
 pub mod cancellation;
-pub mod skeleton;
 pub mod config;
 pub mod coordinator;
 pub mod device;
@@ -11,6 +10,7 @@ pub mod pen;
 pub mod screenshot;
 pub mod segmenter;
 pub mod simulation;
+pub mod skeleton;
 pub mod status;
 pub mod touch;
 pub mod util;

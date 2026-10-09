@@ -99,14 +99,22 @@ impl Screenshot {
     // Firmware 3.24+ changed RM2 framebuffer from 16-bit (2 bpp) to 32-bit BGRA (4 bpp).
     fn detect_rm2_bytes_per_pixel() -> usize {
         let (major, minor) = Self::detect_rm2_firmware_version();
-        if major > 3 || (major == 3 && minor >= 24) { 4 } else { 2 }
+        if major > 3 || (major == 3 && minor >= 24) {
+            4
+        } else {
+            2
+        }
     }
 
     // Memory offset within the post-fb0 mapping where the current framebuffer data starts.
     // Reference: goMarkableStream internal/remarkable/detect.go
     fn detect_rm2_pointer_offset() -> u64 {
         let (major, minor) = Self::detect_rm2_firmware_version();
-        if major > 3 || (major == 3 && minor >= 24) { 2629632 } else { 0 }
+        if major > 3 || (major == 3 && minor >= 24) {
+            2629632
+        } else {
+            0
+        }
     }
 
     pub fn take_screenshot(&mut self) -> Result<()> {
@@ -179,7 +187,12 @@ impl Screenshot {
                 let address_hex = String::from_utf8(output.stdout)?.trim().to_string();
                 let address = u64::from_str_radix(&address_hex, 16)?;
                 let pointer_offset = Self::detect_rm2_pointer_offset();
-                debug!("RM2 framebuffer: base={:#x}, pointer_offset={}, total={:#x}", address, pointer_offset, address + pointer_offset + 8);
+                debug!(
+                    "RM2 framebuffer: base={:#x}, pointer_offset={}, total={:#x}",
+                    address,
+                    pointer_offset,
+                    address + pointer_offset + 8
+                );
                 Ok(address + pointer_offset + 8)
             }
         }
@@ -366,7 +379,8 @@ impl Screenshot {
         } else {
             // Pre-3.24: data is stored landscape (1872×1404), 16-bit RGB565. Take high byte.
             let processed: Vec<u8> = raw_data.chunks_exact(2).map(|chunk| Self::apply_curves(chunk[1])).collect();
-            let img = GrayImage::from_raw(self.screen_width(), self.screen_height(), processed).ok_or_else(|| anyhow::anyhow!("Failed to create image from raw data"))?;
+            let img = GrayImage::from_raw(self.screen_width(), self.screen_height(), processed)
+                .ok_or_else(|| anyhow::anyhow!("Failed to create image from raw data"))?;
             let rotated_img = image::imageops::rotate270(&img);
             let final_image = image::imageops::flip_horizontal(&rotated_img);
             encoder.write_image(final_image.as_raw(), final_image.width(), final_image.height(), image::ExtendedColorType::L8)?;
@@ -534,10 +548,7 @@ impl Screenshot {
 
         // The menu sits ~15-60px from the selection edge; check below first
         // (xochitl's preference), then above.
-        let bands = [
-            (sel.y + sel.h + 2, (sel.y + sel.h + 110).min(height - 1)),
-            ((sel.y - 110).max(0), sel.y - 2),
-        ];
+        let bands = [(sel.y + sel.h + 2, (sel.y + sel.h + 110).min(height - 1)), ((sel.y - 110).max(0), sel.y - 2)];
 
         for (y0, y1) in bands {
             if y1 <= y0 {
@@ -587,13 +598,7 @@ impl Screenshot {
                         try_push(idx + win_w);
                     }
                 }
-                comps.push((
-                    x0 + min_x as i32,
-                    y0 + min_y as i32,
-                    x0 + max_x as i32,
-                    y0 + max_y as i32,
-                    count,
-                ));
+                comps.push((x0 + min_x as i32, y0 + min_y as i32, x0 + max_x as i32, y0 + max_y as i32, count));
             }
 
             // The menu border: wide, ~40 tall, hollow (border pixels only)

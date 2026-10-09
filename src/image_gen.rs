@@ -88,6 +88,9 @@ impl ImageGen {
 
         // Surface any text the model returned instead (usually a refusal)
         let text = parts.iter().filter_map(|p| p["text"].as_str()).collect::<Vec<_>>().join(" ");
-        Err(anyhow!("image API returned no image; model said: {}", text.chars().take(300).collect::<String>()))
+        Err(anyhow!(
+            "image API returned no image; model said: {}",
+            text.chars().take(300).collect::<String>()
+        ))
     }
 }

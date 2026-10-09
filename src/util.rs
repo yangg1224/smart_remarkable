@@ -175,11 +175,7 @@ pub fn upscale_png_b64(b64: &str, min_dim: u32) -> String {
             img
         } else {
             let scale = min_dim as f32 / w.max(h) as f32;
-            img.resize(
-                (w as f32 * scale) as u32,
-                (h as f32 * scale) as u32,
-                image::imageops::FilterType::Lanczos3,
-            )
+            img.resize((w as f32 * scale) as u32, (h as f32 * scale) as u32, image::imageops::FilterType::Lanczos3)
         };
         let mut png = std::io::Cursor::new(Vec::new());
         resized.write_to(&mut png, image::ImageFormat::Png)?;
@@ -286,16 +282,12 @@ pub fn fit_svg_to_rect(svg_data: &str, rect: crate::touch::Rect) -> Result<Strin
     let ty = ty.clamp(0.0, (CANVAS_H - bbox_h * scale).max(0.0));
 
     // Extract the inner content of the <svg> element
-    let open_start = svg_data
-        .find("<svg")
-        .ok_or_else(|| anyhow::anyhow!("No <svg> element found"))?;
+    let open_start = svg_data.find("<svg").ok_or_else(|| anyhow::anyhow!("No <svg> element found"))?;
     let open_end = svg_data[open_start..]
         .find('>')
         .map(|i| open_start + i + 1)
         .ok_or_else(|| anyhow::anyhow!("Malformed <svg> element"))?;
-    let close_start = svg_data
-        .rfind("</svg>")
-        .ok_or_else(|| anyhow::anyhow!("No </svg> closing tag found"))?;
+    let close_start = svg_data.rfind("</svg>").ok_or_else(|| anyhow::anyhow!("No </svg> closing tag found"))?;
     let inner = &svg_data[open_end..close_start];
 
     info!(
@@ -617,7 +609,12 @@ mod tests {
     fn fit_svg_to_rect_places_content_inside_rect() {
         // A rect drawn near the top-left of the full canvas
         let svg = r#"<svg width="768" height="1024" xmlns="http://www.w3.org/2000/svg"><rect x="10" y="10" width="400" height="200" fill="none" stroke="black" stroke-width="4"/></svg>"#;
-        let target = Rect { x: 300, y: 500, w: 200, h: 150 };
+        let target = Rect {
+            x: 300,
+            y: 500,
+            w: 200,
+            h: 150,
+        };
 
         let fitted = fit_svg_to_rect(svg, target).unwrap();
         let bitmap = svg_to_bitmap(&fitted, 768, 1024).unwrap();
@@ -637,7 +634,12 @@ mod tests {
     #[test]
     fn fit_svg_to_rect_handles_empty_svg() {
         let svg = r#"<svg width="768" height="1024" xmlns="http://www.w3.org/2000/svg"></svg>"#;
-        let target = Rect { x: 100, y: 100, w: 100, h: 100 };
+        let target = Rect {
+            x: 100,
+            y: 100,
+            w: 100,
+            h: 100,
+        };
         let fitted = fit_svg_to_rect(svg, target).unwrap();
         assert_eq!(fitted, svg);
     }

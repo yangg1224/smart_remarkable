@@ -156,7 +156,7 @@ async fn main() -> Result<()> {
                 pen.draw_line_screen((x1, y1), (x2, y1))?; // top
                 pen.draw_line_screen((x2, y1), (x2, y2))?; // right
                 pen.draw_line_screen((x2, y2), (x1, y2))?; // bottom
-                pen.draw_line_screen((x1, y2), (x1, y1))   // left
+                pen.draw_line_screen((x1, y2), (x1, y1)) // left
             })
             .await?;
             println!("Drew rect ({}, {}) to ({}, {})", x1, y1, x2, y2);
@@ -249,8 +249,7 @@ async fn main() -> Result<()> {
 
         Commands::DrawPng { png_path } => {
             let img = image::open(&png_path)?.to_luma8();
-            let bitmap: Vec<Vec<bool>> =
-                img.rows().map(|row| row.map(|p| p[0] < 128).collect()).collect();
+            let bitmap: Vec<Vec<bool>> = img.rows().map(|row| row.map(|p| p[0] < 128).collect()).collect();
             with_fineliner(|| {
                 let mut pen = Pen::new(false);
                 pen.draw_bitmap(&bitmap)
@@ -363,8 +362,8 @@ async fn main() -> Result<()> {
             ss.take_screenshot()?;
             let palette_pixel = ss.get_pixel(70, 100);
             let sidebar_pixel = ss.get_pixel(2, 77);
-            let palette_open = palette_pixel.map(|(r,_,_)| r < 128).unwrap_or(false);
-            let sidebar_dark = sidebar_pixel.map(|(r,_,_)| r < 128).unwrap_or(false);
+            let palette_open = palette_pixel.map(|(r, _, _)| r < 128).unwrap_or(false);
+            let sidebar_dark = sidebar_pixel.map(|(r, _, _)| r < 128).unwrap_or(false);
             let tool = if palette_open {
                 "UNKNOWN (palette is open)"
             } else if sidebar_dark {

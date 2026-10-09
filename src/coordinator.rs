@@ -22,11 +22,7 @@ pub enum TriggerEvent {
     UserTouch { source: TriggerSource },
     /// User touched the trigger corner, then tapped the corners of a
     /// selection box and an answer-placement box (select mode)
-    UserSelection {
-        selection: Rect,
-        placement: Rect,
-        source: TriggerSource,
-    },
+    UserSelection { selection: Rect, placement: Rect, source: TriggerSource },
     /// Trigger via web API (for testing/simulation)
     WebTrigger,
 }
@@ -102,13 +98,7 @@ pub async fn trigger_task(
 
         if no_trigger {
             debug!("No-trigger mode: auto-triggering");
-            if trigger_tx
-                .send(TriggerEvent::UserTouch {
-                    source: TriggerSource::Touch,
-                })
-                .await
-                .is_err()
-            {
+            if trigger_tx.send(TriggerEvent::UserTouch { source: TriggerSource::Touch }).await.is_err() {
                 info!("Trigger receiver dropped, exiting trigger task");
                 break;
             }
@@ -196,11 +186,7 @@ pub async fn trigger_task(
 
 /// Collect the four taps that define the selection box (what to answer)
 /// and the placement box (where to draw the answer): two opposite corners each.
-async fn collect_selection(
-    touch: &mut Touch,
-    cancellation: &SmartRemarkableCancellation,
-    source: TriggerSource,
-) -> Result<TriggerEvent> {
+async fn collect_selection(touch: &mut Touch, cancellation: &SmartRemarkableCancellation, source: TriggerSource) -> Result<TriggerEvent> {
     info!("Select mode: tap two corners of the handwriting to select");
     let sel_a = touch.wait_for_tap(cancellation).await?;
     let sel_b = touch.wait_for_tap(cancellation).await?;
@@ -212,11 +198,7 @@ async fn collect_selection(
     let placement = Rect::from_corners(place_a, place_b);
     info!("Select mode: placement box {:?}", placement);
 
-    Ok(TriggerEvent::UserSelection {
-        selection,
-        placement,
-        source,
-    })
+    Ok(TriggerEvent::UserSelection { selection, placement, source })
 }
 
 /// Task that monitors for cancel touch during processing
