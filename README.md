@@ -102,13 +102,17 @@ the refined version draws in their place. Needs `GEMINI_API_KEY` or
   synthetic pen/touch coordinates back at the injection boundary — so taps,
   erasing, and drawing land correctly either way you hold the tablet.
 
-- **Web config UI** (`--web-server`, `--web-port`). A `warp`-based HTTP
-  server (default port `8080`) serving a small static UI for viewing and
+- **Web config UI** (`--web-server`, `--web-port`, `--web-bind`). A `warp`-based HTTP
+  server (default `127.0.0.1:8080`) serving a small static UI for viewing and
   live-editing the running config, applying changes immediately (in-memory,
   hot-reloaded via a watch channel, with in-flight LLM calls cancelled) and
   persisting them to `~/.smart_remarkable.toml`. Also exposes
   `POST /api/simulation/trigger` to fire a trigger manually without touching
-  the device.
+  the device. API keys are never returned by `GET /api/config` (only an
+  `engine_api_key_set` / `image_api_key_set` flag), and a blank key on save
+  keeps the stored one. Requests must use `localhost` or an IP address as the
+  host, and cross-origin browser requests are rejected. There is no
+  authentication, so only bind to `0.0.0.0` on a network you trust.
 
 - **Image segmentation** (`--apply-segmentation`). Runs contour-based region
   detection (`imageproc`) over the screenshot before calling the LLM,
@@ -187,7 +191,7 @@ sketch/redraw flow respectively.
 | `--trigger-corner` | `UR` | `UR`/`UL`/`LR`/`LL` |
 | `--apply-segmentation` | off | Add CV-derived spatial hints to the prompt |
 | `--web-search` / `--thinking` / `--thinking-tokens` | off / off / `5000` | Anthropic-only extras |
-| `--web-server` / `--web-port` | off / `8080` | Live config UI/API |
+| `--web-server` / `--web-port` / `--web-bind` | off / `8080` / `127.0.0.1` | Live config UI/API (no auth; use `--web-bind 0.0.0.0` to reach it from other devices) |
 | `--save-config` | off | Persist resolved config and exit |
 | `--log-level` | `info` | `debug`, `trace`, etc. |
 | `--input-png`, `--test-mode`, `--test-touch-events-file`, `--test-screenshot-dir`, `--test-auto-trigger-delay` | — | Offline simulation / testing |
