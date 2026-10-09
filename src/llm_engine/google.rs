@@ -95,19 +95,18 @@ impl LLMEngine for Google {
 
         // Create async HTTP request with cancellation support
         let request_future = async {
-            let client = reqwest::Client::new();
-            let response = client
-                .post(format!("{}/v1beta/models/{}:generateContent?key={}", self.base_url, self.model, self.api_key))
+            // Key goes in a header, not the `?key=` query string, so it can't leak into
+            // error messages or logs that include the request URL.
+            let response = super::http::client()
+                .post(format!("{}/v1beta/models/{}:generateContent", self.base_url, self.model))
+                .header("x-goog-api-key", self.api_key.as_str())
                 .header("Content-Type", "application/json")
                 .json(&body)
                 .send()
-                .await?;
+                .await
+                .map_err(super::http::send_error)?;
 
-            if !response.status().is_success() {
-                return Err(anyhow::anyhow!("API Error: {}", response.status()));
-            }
-
-            let body_text = response.text().await?;
+            let body_text = super::http::read_body(response).await?;
             let json: json = serde_json::from_str(&body_text)?;
             Ok(json)
         };
