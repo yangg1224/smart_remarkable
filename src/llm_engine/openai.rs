@@ -1,4 +1,4 @@
-use super::{status_update, LLMEngine, Tool};
+use super::{fail, required_model, status_update, LLMEngine, Tool};
 use crate::cancellation::{with_cancellation, SmartRemarkableCancellation};
 use crate::util::{option_or_env, option_or_env_fallback, OptionMap};
 use anyhow::Result;
@@ -33,18 +33,18 @@ impl OpenAI {
 
 #[async_trait::async_trait]
 impl LLMEngine for OpenAI {
-    fn new(options: &OptionMap) -> Self {
-        let api_key = option_or_env(options, "api_key", "OPENAI_API_KEY");
+    fn new(options: &OptionMap) -> Result<Self> {
+        let api_key = option_or_env(options, "api_key", "OPENAI_API_KEY")?;
         let base_url = option_or_env_fallback(options, "base_url", "OPENAI_BASE_URL", "https://api.openai.com");
-        let model = options.get("model").unwrap().to_string();
+        let model = required_model(options)?;
 
-        Self {
+        Ok(Self {
             model,
             base_url,
             api_key,
             tools: Vec::new(),
             content: Vec::new(),
-        }
+        })
     }
 
     fn register_tool(&mut self, name: &str, definition: json, callback: Box<dyn FnMut(json) + Send>) {
@@ -127,9 +127,21 @@ impl LLMEngine for OpenAI {
             // Notify that we're calling tools
             status_update!(status_callback, super::ModelExecutionStatus::CallingTools);
 
-            let function_name = tool_call["function"]["name"].as_str().unwrap();
-            let function_input_raw = tool_call["function"]["arguments"].as_str().unwrap();
-            let function_input = serde_json::from_str::<json>(function_input_raw).unwrap();
+            let Some(function_name) = tool_call["function"]["name"].as_str() else {
+                return Err(fail(&mut status_callback, "Tool call in response has no function name"));
+            };
+            let Some(function_input_raw) = tool_call["function"]["arguments"].as_str() else {
+                return Err(fail(&mut status_callback, format!("Tool call {} has no arguments", function_name)));
+            };
+            let function_input = match serde_json::from_str::<json>(function_input_raw) {
+                Ok(input) => input,
+                Err(e) => {
+                    return Err(fail(
+                        &mut status_callback,
+                        format!("Tool call {} has invalid JSON arguments: {}", function_name, e),
+                    ))
+                }
+            };
             let tool = self.tools.iter_mut().find(|tool| tool.name == function_name);
 
             if let Some(tool) = tool {
@@ -156,5 +168,50 @@ impl LLMEngine for OpenAI {
             );
             Err(anyhow::anyhow!("No tool calls found in response"))
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::llm_engine::test_support::{last_is_error, mock_server, recording_callback};
+    use std::collections::HashMap;
+
+    fn engine(base_url: &str) -> OpenAI {
+        let options: OptionMap = HashMap::from([
+            ("model".to_string(), "test-model".to_string()),
+            ("api_key".to_string(), "test-key".to_string()),
+            ("base_url".to_string(), base_url.to_string()),
+        ]);
+        let mut engine = OpenAI::new(&options).unwrap();
+        engine.register_tool("draw_text", json!({ "name": "draw_text" }), Box::new(|_| {}));
+        engine
+    }
+
+    #[test]
+    fn new_without_model_is_an_error_not_a_panic() {
+        let options: OptionMap = HashMap::from([("api_key".to_string(), "k".to_string())]);
+        assert!(OpenAI::new(&options).is_err());
+    }
+
+    #[tokio::test]
+    async fn invalid_tool_arguments_report_error_instead_of_panicking() {
+        let base = mock_server(
+            200,
+            r#"{"choices":[{"message":{"tool_calls":[{"function":{"name":"draw_text","arguments":"{not json"}}]}}]}"#,
+        )
+        .await;
+        let (cb, seen) = recording_callback();
+        let err = engine(&base).execute(&SmartRemarkableCancellation::new(), Some(cb)).await.unwrap_err();
+        assert!(err.to_string().contains("invalid JSON arguments"), "{}", err);
+        assert!(last_is_error(&seen));
+    }
+
+    #[tokio::test]
+    async fn missing_function_name_reports_error_instead_of_panicking() {
+        let base = mock_server(200, r#"{"choices":[{"message":{"tool_calls":[{"function":{"arguments":"{}"}}]}}]}"#).await;
+        let (cb, seen) = recording_callback();
+        assert!(engine(&base).execute(&SmartRemarkableCancellation::new(), Some(cb)).await.is_err());
+        assert!(last_is_error(&seen));
     }
 }
