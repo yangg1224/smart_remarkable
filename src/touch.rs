@@ -322,9 +322,7 @@ impl Touch {
                 let mut position_x = 0;
                 let mut position_y = 0;
 
-                let events = event_stream
-                    .as_mut()
-                    .ok_or_else(|| anyhow::anyhow!("No touch event stream available"))?;
+                let events = event_stream.as_mut().ok_or_else(|| anyhow::anyhow!("No touch event stream available"))?;
 
                 loop {
                     tokio::select! {
@@ -454,26 +452,21 @@ impl Touch {
 
     /// Sidebar tool icon y-centers (virtual 768×1024 coords, x≈28).
     /// Verified by screenshot analysis. All icons are at x≈28 when palette is open.
-    const SIDEBAR_Y_PEN1: i32 = 80;   // Mechanical pencil (pen slot 1)
-    const SIDEBAR_Y_PEN2: i32 = 130;  // Fineliner (pen slot 2) — used by smart_remarkable
-    const SIDEBAR_Y_TEXT: i32 = 187;  // Text tool
+    const SIDEBAR_Y_PEN1: i32 = 80; // Mechanical pencil (pen slot 1)
+    const SIDEBAR_Y_PEN2: i32 = 130; // Fineliner (pen slot 2) — used by smart_remarkable
+    const SIDEBAR_Y_TEXT: i32 = 187; // Text tool
     const SIDEBAR_Y_ERASER: i32 = 240;
     const SIDEBAR_X: i32 = 28;
 
     /// Known sidebar tool y-centers for dynamic scanning.
-    const SIDEBAR_TOOL_YS: &'static [i32] = &[
-        Self::SIDEBAR_Y_PEN1,
-        Self::SIDEBAR_Y_PEN2,
-        Self::SIDEBAR_Y_TEXT,
-        Self::SIDEBAR_Y_ERASER,
-    ];
+    const SIDEBAR_TOOL_YS: &'static [i32] = &[Self::SIDEBAR_Y_PEN1, Self::SIDEBAR_Y_PEN2, Self::SIDEBAR_Y_TEXT, Self::SIDEBAR_Y_ERASER];
 
     /// Settings panel coordinates for the Fineliner pen (slot 2, y≈130).
     /// NOTE: Tapping a pen-type icon closes the settings panel — skip that tap.
     /// Only configure size and color; these taps keep the settings panel open.
-    const SETTINGS_SIZE_THIN: (i32, i32) = (96, 385);      // Thin stroke thickness
-    const SETTINGS_SIZE_MEDIUM: (i32, i32) = (150, 385);   // Medium stroke thickness
-    const SETTINGS_COLOR_BLACK: (i32, i32) = (96, 468);    // Black color (row 1, col 1)
+    const SETTINGS_SIZE_THIN: (i32, i32) = (96, 385); // Thin stroke thickness
+    const SETTINGS_SIZE_MEDIUM: (i32, i32) = (150, 385); // Medium stroke thickness
+    const SETTINGS_COLOR_BLACK: (i32, i32) = (96, 468); // Black color (row 1, col 1)
 
     /// Detect whether the palette is currently open by scanning the screenshot.
     ///
@@ -484,9 +477,7 @@ impl Touch {
     fn screenshot_palette_open(ss: &Screenshot) -> bool {
         // Check a pixel inside the expected sidebar tool area.
         // Any dark content at this position = palette is open.
-        let is_open = (60u32..110).any(|y| {
-            ss.get_pixel(28, y).map(|(r, _, _)| r < 180).unwrap_or(false)
-        });
+        let is_open = (60u32..110).any(|y| ss.get_pixel(28, y).map(|(r, _, _)| r < 180).unwrap_or(false));
         is_open
     }
 
@@ -553,9 +544,7 @@ impl Touch {
         }
         let palette_open = Self::screenshot_palette_open(&ss);
         let tool = if palette_open {
-            Self::screenshot_selected_tool_y(&ss)
-                .map(Self::y_to_pen_tool)
-                .unwrap_or(PenTool::Unknown)
+            Self::screenshot_selected_tool_y(&ss).map(Self::y_to_pen_tool).unwrap_or(PenTool::Unknown)
         } else {
             PenTool::Unknown
         };
@@ -688,7 +677,6 @@ impl Touch {
         }
         Ok(())
     }
-
 
     fn is_in_trigger_zone(x: i32, y: i32, trigger_corner: TriggerCorner) -> bool {
         const CORNER_SIZE: i32 = 68; // Size of the trigger zone (68x68 pixels)

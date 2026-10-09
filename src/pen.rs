@@ -321,13 +321,7 @@ impl Pen {
 
     // Draw a single segment from prev to (px,py), emitting interpolated goto_xy events.
     // Returns updated step_count.
-    fn draw_segment(
-        &mut self,
-        prev: (f32, f32),
-        (px, py): (f32, f32),
-        step_count: &mut usize,
-        max_step: f32,
-    ) -> Result<()> {
+    fn draw_segment(&mut self, prev: (f32, f32), (px, py): (f32, f32), step_count: &mut usize, max_step: f32) -> Result<()> {
         let dist = ((px - prev.0).powi(2) + (py - prev.1).powi(2)).sqrt();
         let steps = ((dist / max_step).ceil() as usize).max(1);
         for s in 1..=steps {
@@ -479,19 +473,11 @@ impl Pen {
 
             // Even rows: L→R, odd rows: R→L
             let go_left = (y % 2) == 1;
-            let ordered_runs: Vec<(usize, usize)> = if go_left {
-                runs.iter().rev().cloned().collect()
-            } else {
-                runs.clone()
-            };
+            let ordered_runs: Vec<(usize, usize)> = if go_left { runs.iter().rev().cloned().collect() } else { runs.clone() };
 
             for (x_start, x_end) in ordered_runs {
                 // For L→R draw start→end; for R→L draw end→start
-                let (draw_from, draw_to) = if go_left {
-                    (x_end, x_start)
-                } else {
-                    (x_start, x_end)
-                };
+                let (draw_from, draw_to) = if go_left { (x_end, x_start) } else { (x_start, x_end) };
 
                 let ix_from = ((draw_from as f32 / bmp_w) * max_x).round() as i32;
                 let ix_to = ((draw_to as f32 / bmp_w) * max_x).round() as i32;
@@ -639,10 +625,10 @@ impl Pen {
             ])?;
             // Press with given pressure
             device.send_events(&[
-                InputEvent::new(EvdevEventType::KEY.0, 330, 1),           // BTN_TOUCH
+                InputEvent::new(EvdevEventType::KEY.0, 330, 1),            // BTN_TOUCH
                 InputEvent::new(EvdevEventType::ABSOLUTE.0, 24, pressure), // ABS_PRESSURE
-                InputEvent::new(EvdevEventType::ABSOLUTE.0, 25, 0),       // ABS_DISTANCE = 0
-                InputEvent::new(EvdevEventType::SYNCHRONIZATION.0, 0, 0), // SYN_REPORT
+                InputEvent::new(EvdevEventType::ABSOLUTE.0, 25, 0),        // ABS_DISTANCE = 0
+                InputEvent::new(EvdevEventType::SYNCHRONIZATION.0, 0, 0),  // SYN_REPORT
             ])?;
         }
         Ok(())
@@ -658,8 +644,7 @@ impl Pen {
         let write_opt = usvg::WriteOptions::default(); // preserve_text=false → converts text to paths
         let flattened_svg = tree.to_string(&write_opt);
 
-        let polylines = svg2polylines::parse(&flattened_svg, 0.5, true)
-            .map_err(|e| anyhow::anyhow!("svg2polylines error: {}", e))?;
+        let polylines = svg2polylines::parse(&flattened_svg, 0.5, true).map_err(|e| anyhow::anyhow!("svg2polylines error: {}", e))?;
         info!("draw_svg_paths: {} polylines", polylines.len());
         self.draw_polylines(&polylines)
     }
@@ -703,11 +688,7 @@ impl Pen {
         // Rasterize at 2× for better thinning quality, then scale coords back
         let scale = 2u32;
         let mut bitmap = svg_to_bitmap(svg_data, VIRTUAL_WIDTH * scale, VIRTUAL_HEIGHT * scale)?;
-        info!(
-            "draw_svg_centerline: rasterized {}×{} bitmap",
-            VIRTUAL_WIDTH * scale,
-            VIRTUAL_HEIGHT * scale
-        );
+        info!("draw_svg_centerline: rasterized {}×{} bitmap", VIRTUAL_WIDTH * scale, VIRTUAL_HEIGHT * scale);
 
         skeleton::thin_zhang_suen(&mut bitmap);
         info!("draw_svg_centerline: thinning done");
@@ -747,10 +728,13 @@ impl Pen {
         // Drop specks: isolated dots and sub-4px fragments come from residual
         // stipple/noise in the generated image and draw as ugly pen taps.
         paths.retain(|p| {
-            let len: f32 = p.windows(2).map(|w| {
-                let (dx, dy) = (w[1].0 - w[0].0, w[1].1 - w[0].1);
-                (dx * dx + dy * dy).sqrt()
-            }).sum();
+            let len: f32 = p
+                .windows(2)
+                .map(|w| {
+                    let (dx, dy) = (w[1].0 - w[0].0, w[1].1 - w[0].1);
+                    (dx * dx + dy * dy).sqrt()
+                })
+                .sum();
             len >= 4.0
         });
         if paths.is_empty() {
@@ -779,7 +763,16 @@ impl Pen {
         let ty = ry + (rh - bh * scale) / 2.0 - min_y * scale;
         info!(
             "draw_bitmap_centerline: {} strokes, bbox ({:.0}, {:.0}, {:.0}, {:.0}) -> rect ({:.0}, {:.0}, {:.0}, {:.0}), scale {:.3}",
-            paths.len(), min_x, min_y, bw, bh, rx, ry, rw, rh, scale
+            paths.len(),
+            min_x,
+            min_y,
+            bw,
+            bh,
+            rx,
+            ry,
+            rw,
+            rh,
+            scale
         );
 
         let clamp_x = |v: f32| v.clamp(0.0, VIRTUAL_WIDTH as f32 - 1.0);
@@ -795,8 +788,7 @@ impl Pen {
     /// Draw SVG using path tracing, passing SVG directly to svg2polylines without usvg preprocessing.
     /// Better for geometric shapes (lines, rects, circles), but text won't render.
     pub fn draw_svg_paths_raw(&mut self, svg_data: &str) -> Result<()> {
-        let polylines = svg2polylines::parse(svg_data, 0.5, true)
-            .map_err(|e| anyhow::anyhow!("svg2polylines error: {}", e))?;
+        let polylines = svg2polylines::parse(svg_data, 0.5, true).map_err(|e| anyhow::anyhow!("svg2polylines error: {}", e))?;
         info!("draw_svg_paths_raw: {} polylines", polylines.len());
         self.draw_polylines(&polylines)
     }

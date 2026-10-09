@@ -23,8 +23,8 @@ use smart_remarkable::{
     status::SmartRemarkableStatus,
     touch::{PenTool, Rect, Touch, TriggerCorner, TriggerSource},
     util::{
-        build_svg_from_lines, fit_lines_to_rect, fit_svg_to_rect, image_to_ink_bitmap, setup_uinput, svg_to_bitmap, upscale_png_b64,
-        write_bitmap_to_file, OptionMap,
+        build_svg_from_lines, fit_lines_to_rect, fit_svg_to_rect, image_to_ink_bitmap, setup_uinput, svg_to_bitmap, upscale_png_b64, write_bitmap_to_file,
+        OptionMap,
     },
     web_server::start_web_server,
 };
@@ -402,9 +402,8 @@ fn native_delete_selection(sel: Rect) -> bool {
         return false;
     };
     log::info!("native_delete_selection: tapping delete at {:?}", tap_point);
-    let tapped = tokio::task::block_in_place(|| {
-        tokio::runtime::Handle::current().block_on(async { Touch::new(false, TriggerCorner::UpperRight).tap(tap_point).await })
-    });
+    let tapped =
+        tokio::task::block_in_place(|| tokio::runtime::Handle::current().block_on(async { Touch::new(false, TriggerCorner::UpperRight).tap(tap_point).await }));
     if tapped.is_err() {
         return false;
     }
@@ -929,7 +928,8 @@ fn register_tools(
                             // rather than slot 2, which may be a highlighter
                             Touch::new(false, TriggerCorner::UpperRight).switch_to_tool(PenTool::Ballpoint).await
                         })
-                    }).unwrap_or(PenTool::Unknown)
+                    })
+                    .unwrap_or(PenTool::Unknown)
                 } else {
                     PenTool::Unknown
                 };
@@ -945,10 +945,9 @@ fn register_tools(
                 // Restore the original tool after drawing
                 if !no_draw && !test_mode && previous_tool != PenTool::Unknown {
                     tokio::task::block_in_place(|| {
-                        tokio::runtime::Handle::current().block_on(async {
-                            Touch::new(false, TriggerCorner::UpperRight).restore_tool(previous_tool).await
-                        })
-                    }).ok();
+                        tokio::runtime::Handle::current().block_on(async { Touch::new(false, TriggerCorner::UpperRight).restore_tool(previous_tool).await })
+                    })
+                    .ok();
                 }
             }
         }
@@ -1041,9 +1040,8 @@ fn register_tools(
 
                 let previous_tool = if !no_draw && !test_mode {
                     tokio::task::block_in_place(|| {
-                        tokio::runtime::Handle::current().block_on(async {
-                            Touch::new(false, TriggerCorner::UpperRight).switch_to_tool(PenTool::Ballpoint).await
-                        })
+                        tokio::runtime::Handle::current()
+                            .block_on(async { Touch::new(false, TriggerCorner::UpperRight).switch_to_tool(PenTool::Ballpoint).await })
                     })
                     .unwrap_or(PenTool::Unknown)
                 } else {
@@ -1060,8 +1058,7 @@ fn register_tools(
 
                 if !no_draw && !test_mode && previous_tool != PenTool::Unknown {
                     tokio::task::block_in_place(|| {
-                        tokio::runtime::Handle::current()
-                            .block_on(async { Touch::new(false, TriggerCorner::UpperRight).restore_tool(previous_tool).await })
+                        tokio::runtime::Handle::current().block_on(async { Touch::new(false, TriggerCorner::UpperRight).restore_tool(previous_tool).await })
                     })
                     .ok();
                 }
@@ -1120,9 +1117,8 @@ fn register_tools(
                     } else {
                         None
                     };
-                    let image_bytes = tokio::task::block_in_place(|| {
-                        tokio::runtime::Handle::current().block_on(image_gen.generate(image_prompt, image_input.as_deref()))
-                    });
+                    let image_bytes =
+                        tokio::task::block_in_place(|| tokio::runtime::Handle::current().block_on(image_gen.generate(image_prompt, image_input.as_deref())));
                     let image_bytes = match image_bytes {
                         Ok(bytes) => bytes,
                         Err(e) => {
@@ -1170,9 +1166,8 @@ fn register_tools(
 
                     let previous_tool = if !test_mode {
                         tokio::task::block_in_place(|| {
-                            tokio::runtime::Handle::current().block_on(async {
-                                Touch::new(false, TriggerCorner::UpperRight).switch_to_tool(PenTool::Ballpoint).await
-                            })
+                            tokio::runtime::Handle::current()
+                                .block_on(async { Touch::new(false, TriggerCorner::UpperRight).switch_to_tool(PenTool::Ballpoint).await })
                         })
                         .unwrap_or(PenTool::Unknown)
                     } else {
@@ -1192,8 +1187,7 @@ fn register_tools(
 
                     if !test_mode && previous_tool != PenTool::Unknown {
                         tokio::task::block_in_place(|| {
-                            tokio::runtime::Handle::current()
-                                .block_on(async { Touch::new(false, TriggerCorner::UpperRight).restore_tool(previous_tool).await })
+                            tokio::runtime::Handle::current().block_on(async { Touch::new(false, TriggerCorner::UpperRight).restore_tool(previous_tool).await })
                         })
                         .ok();
                     }
@@ -1271,7 +1265,8 @@ fn register_tools(
                             // rather than slot 2, which may be a highlighter
                             Touch::new(false, TriggerCorner::UpperRight).switch_to_tool(PenTool::Ballpoint).await
                         })
-                    }).unwrap_or(PenTool::Unknown)
+                    })
+                    .unwrap_or(PenTool::Unknown)
                 } else {
                     PenTool::Unknown
                 };
@@ -1289,10 +1284,9 @@ fn register_tools(
 
                 if !no_draw && !test_mode && previous_tool != PenTool::Unknown {
                     tokio::task::block_in_place(|| {
-                        tokio::runtime::Handle::current().block_on(async {
-                            Touch::new(false, TriggerCorner::UpperRight).restore_tool(previous_tool).await
-                        })
-                    }).ok();
+                        tokio::runtime::Handle::current().block_on(async { Touch::new(false, TriggerCorner::UpperRight).restore_tool(previous_tool).await })
+                    })
+                    .ok();
                 }
             }),
         );

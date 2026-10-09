@@ -26,7 +26,12 @@ pub fn get_uinput_module_data(version: &str) -> Option<Vec<u8>> {
 pub fn get_answer_font_data() -> Vec<Vec<u8>> {
     ["PatrickHand-Regular.ttf", "NotoSansSC-Regular.ttf"]
         .iter()
-        .map(|name| AssetFonts::get(name).unwrap_or_else(|| panic!("bundled {name} font asset is missing")).data.to_vec())
+        .map(|name| {
+            AssetFonts::get(name)
+                .unwrap_or_else(|| panic!("bundled {name} font asset is missing"))
+                .data
+                .to_vec()
+        })
         .collect()
 }
 
