@@ -90,6 +90,16 @@ class GhostwriterConfig {
             }
         });
 
+        // The server never sends API keys back, only whether one is stored.
+        // Leaving the field blank on save keeps the stored key.
+        const keyInput = document.getElementById('engine_api_key');
+        if (keyInput) {
+            keyInput.value = '';
+            keyInput.placeholder = config.engine_api_key_set
+                ? 'Key is set (leave blank to keep it)'
+                : 'API key (optional if using env vars)';
+        }
+
         // Checkboxes
         const boolFields = [
             'no_submit', 'no_draw', 'no_svg', 'no_keyboard', 'no_draw_progress',

@@ -167,6 +167,11 @@ pub struct Args {
     #[arg(long, default_value = "8080")]
     web_port: u16,
 
+    /// Address the web server listens on (default: 127.0.0.1, local only).
+    /// Use 0.0.0.0 to reach it from other devices; it has no authentication.
+    #[arg(long, default_value = "127.0.0.1")]
+    web_bind: std::net::IpAddr,
+
     /// Enable test/simulation mode for specific device (rm2, rmpp)
     #[arg(long)]
     test_mode: Option<String>,
@@ -508,9 +513,11 @@ async fn smart_remarkable(args: &Args) -> Result<()> {
         let cancellation_clone = Arc::clone(&shared_cancellation);
         let config_watch_tx_clone = Arc::clone(&shared_config_watch_tx);
         let port = args.web_port;
+        let bind = args.web_bind;
 
         Some(tokio::spawn(async move {
             start_web_server(
+                bind,
                 port,
                 config_clone,
                 status_clone,
