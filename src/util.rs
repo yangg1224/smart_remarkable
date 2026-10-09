@@ -702,7 +702,12 @@ fn render_chinese_font_test_png() {
     ];
     let svg = build_svg_from_lines(&lines);
     let bitmap = svg_to_bitmap(&svg, 768, 1024).unwrap();
-    write_bitmap_to_file(&bitmap, "/private/tmp/claude-501/-Users-yang-Downloads-remarkable-app/8697c15e-ba77-4d86-a32d-4eb6ec49b9f8/scratchpad/chinese_font_test.png").unwrap();
+    assert!(bitmap_ink_bbox(&bitmap).is_some(), "rendered answer should have visible ink");
+
+    // Keep the PNG around for eyeballing the font rendering, but write it to the
+    // platform temp dir so the test runs anywhere (CI, Linux, macOS).
+    let out = std::env::temp_dir().join("smart_remarkable_chinese_font_test.png");
+    write_bitmap_to_file(&bitmap, out.to_str().expect("temp dir path should be UTF-8")).unwrap();
 }
 
 #[test]
