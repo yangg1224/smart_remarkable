@@ -356,7 +356,9 @@ fn answer_font_family(line: &str) -> &'static str {
 /// answers use a smaller size/tighter spacing so they still fit legibly
 /// without needing an ever-taller placement box.
 fn answer_line_layout(n_lines: usize) -> (u32, u32) {
-    if n_lines > 8 {
+    if n_lines > 14 {
+        (24, 32)
+    } else if n_lines > 8 {
         (30, 42)
     } else {
         (40, 60)
@@ -541,6 +543,34 @@ mod tests {
         assert_eq!(ys.len(), 14);
         for w in ys.windows(2) {
             assert_eq!(w[1] - w[0], 42, "line spacing must be exactly 42px in the smaller tier, got {:?}", ys);
+        }
+    }
+
+    #[test]
+    fn build_svg_from_lines_shrinks_font_further_beyond_14_lines() {
+        // Fallback handwriting answers can occasionally exceed 14 lines
+        // (e.g. when the model picks the typed-text tier's limits by
+        // mistake, or an untypable-char fallback hits a long answer). A
+        // third, smaller tier (24px font / 32px spacing) lets those still
+        // fit as fully as the box allows instead of overflowing.
+        let lines: Vec<String> = (0..20).map(|i| format!("point {i}")).collect();
+        let svg = build_svg_from_lines(&lines);
+
+        assert!(svg.contains("font-size=\"24\""), "expected smallest font tier for 20 lines");
+        assert!(!svg.contains("font-size=\"30\""));
+        assert!(!svg.contains("font-size=\"40\""));
+
+        let ys: Vec<u32> = svg
+            .match_indices(" y=\"")
+            .map(|(idx, _)| {
+                let rest = &svg[idx + 4..];
+                let end = rest.find('"').unwrap();
+                rest[..end].parse::<u32>().unwrap()
+            })
+            .collect();
+        assert_eq!(ys.len(), 20);
+        for w in ys.windows(2) {
+            assert_eq!(w[1] - w[0], 32, "line spacing must be exactly 32px in the smallest tier, got {:?}", ys);
         }
     }
 

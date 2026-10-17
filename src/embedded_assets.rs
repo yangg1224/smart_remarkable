@@ -44,3 +44,24 @@ pub fn load_config(filename: &str) -> String {
         std::str::from_utf8(AssetPrompts::get(filename).unwrap().data.as_ref()).unwrap().to_string()
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn selection_text_prompt_parses_as_json() {
+        let raw = load_config("selection_text.json");
+        let parsed: serde_json::Value = serde_json::from_str(&raw).unwrap();
+        assert!(parsed["prompt"].is_string());
+        assert_eq!(parsed["tools"], serde_json::json!(["draw_answer"]));
+    }
+
+    #[test]
+    fn tool_draw_answer_text_parses_as_json_with_draw_answer_name() {
+        let raw = load_config("tool_draw_answer_text.json");
+        let parsed: serde_json::Value = serde_json::from_str(&raw).unwrap();
+        assert_eq!(parsed["name"], "draw_answer");
+        assert_eq!(parsed["internal_command"], "draw_answer");
+    }
+}
