@@ -289,6 +289,31 @@ ANTHROPIC_API_KEY=sk-... ./smart_remarkable --select-mode
   `-3.17.ko`, `-3.18.ko`, `-3.22.ko`). Other OS versions may need a rebuilt
   module — see `utils/rmpp/`.
 
+**After a reMarkable OS update**
+
+OS updates replace the system partition. The binary in `/home/root`
+survives, but XOVI's hook (the LLM/Draw buttons), any autostart you added
+under `/etc`, and the running app do not. `build.sh` copies
+`scripts/restore.sh` next to the binary (or `scp scripts/restore.sh
+root@<device-ip>:`), so after each update run:
+
+```bash
+ssh root@<device-ip> ./restore.sh
+```
+
+It reads `IMG_VERSION`, checks the binary is present, and on a Paper Pro
+checks there is uinput support for that OS version (`/dev/uinput`, a loaded
+module, or a bundled `uinput-<version>.ko`). If there isn't, it exits
+non-zero with a clear message instead of starting an app that can't draw.
+Then it re-runs XOVI's start script (only if XOVI isn't already loaded into
+xochitl) and starts `./smart_remarkable --select-mode` in the background,
+logging to `sr.log`, if it isn't already running. Running it again changes
+nothing.
+
+Overrides: `XOVI_START=/path/to/xovi/start` (default `~/xovi/start`),
+`SKIP_XOVI=1`, `SR_ARGS="..."` (default `--select-mode`), `SR_DIR`
+(default `/home/root`). API keys come from `/home/root/.env` as usual.
+
 ## LLM API Keys
 
 Set whichever provider's key you plan to use as an environment variable, or
