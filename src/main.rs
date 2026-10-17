@@ -472,10 +472,17 @@ async fn smart_remarkable(args: &Args) -> Result<()> {
         info!("Test mode enabled for device: {}", device_model.name());
     }
 
-    // Select mode answers a cropped selection, which needs its own prompt
+    // Select mode answers a cropped selection, which needs its own prompt.
+    // When answers are typed as text they wrap automatically, so that prompt
+    // can ask for a fuller, more detailed answer than the handwriting path
+    // (which must fit a small fixed box) can afford.
     if config.select_mode && config.prompt == "general.json" {
-        config.prompt = "selection.json".to_string();
-        info!("Select mode enabled, using selection.json prompt");
+        config.prompt = if config.answer_style == "text" {
+            "selection_text.json".to_string()
+        } else {
+            "selection.json".to_string()
+        };
+        info!("Select mode enabled, using {} prompt", config.prompt);
     }
 
     // Handle --save-config option
@@ -1245,7 +1252,13 @@ fn register_tools(
         // nicer effect and visible proof it's still working.
         const LINE_PAUSE: Duration = Duration::from_millis(450);
 
-        let tool_config_draw_answer = load_config("tool_draw_answer.json");
+        let draw_answer_tool_file = if answer_style == "text" {
+            "tool_draw_answer_text.json"
+        } else {
+            "tool_draw_answer.json"
+        };
+        info!("Registering draw_answer tool with {}", draw_answer_tool_file);
+        let tool_config_draw_answer = load_config(draw_answer_tool_file);
         engine.register_tool(
             "draw_answer",
             serde_json::from_str::<serde_json::Value>(tool_config_draw_answer.as_str())?,
@@ -1321,13 +1334,13 @@ fn register_tools(
                     };
 
                     if typed_ok {
-                        info!("answer output: text ({} chars)", normalized_answer.chars().count());
+                        info!("answer output: text ({} chars, {} lines)", normalized_answer.chars().count(), lines.len());
                         return;
                     }
                     skip_reason = Some("typing failed".to_string());
                 }
 
-                info!("answer output: handwriting (reason: {})", skip_reason.unwrap());
+                info!("answer output: handwriting (reason: {}, {} lines)", skip_reason.unwrap(), lines.len());
 
                 let line_svgs = match &placement {
                     Some(rect) => fit_lines_to_rect(&lines, *rect).unwrap_or_else(|e| {

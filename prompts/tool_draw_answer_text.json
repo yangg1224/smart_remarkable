@@ -1,0 +1,18 @@
+{
+  "name": "draw_answer",
+  "description": "Draw a detailed answer to the screen as a list of lines. Do not compute any coordinates or SVG yourself — just provide the text content, one entry per line, in the order they should appear top to bottom. The app lays them out for you. Lines are typed onto the screen as real text and wrap automatically, so each entry may be a full sentence of any length — write naturally, don't pad or artificially shorten lines. Use up to 30 entries, one point or step per entry. Prefix bullet lines with '- '. Do not include markdown, coordinates, or styling. Exception: if the answer is in Chinese, Japanese, or Korean, or needs symbols outside plain ASCII, it is handwritten into a small fixed box instead of typed, so in that case keep it to at most 14 lines of at most 32 characters each.",
+  "internal_command": "draw_answer",
+  "parameters": {
+    "type": "object",
+    "properties": {
+      "lines": {
+        "type": "array",
+        "description": "The answer as a list of lines, top to bottom. Each entry is one line of plain text, typed and auto-wrapped, so it may be a full sentence of any length. Up to 30 lines. Prefix bullet lines with '- '. Do not include markdown, coordinates, or styling. Exception: Chinese/Japanese/Korean or other non-ASCII answers are handwritten instead of typed — keep those to at most 14 lines of at most 32 characters each.",
+        "items": {
+          "type": "string"
+        }
+      }
+    },
+    "required": ["lines"]
+  }
+}
