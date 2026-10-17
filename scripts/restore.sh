@@ -13,8 +13,9 @@
 #
 # Overrides (environment):
 #   SR_DIR       directory holding the binary and sr.log  (default: /home/root)
-#   SR_ENV       env file with API keys, loaded before start (default: $SR_DIR/.env)
-#   SR_ARGS      arguments passed to the app               (default: --select-mode)
+#   SR_ENV       env file with API keys, may also set SR_ARGS (default: $SR_DIR/.env)
+#   SR_ARGS      arguments passed to the app; set it in $SR_ENV to save it
+#                for this device                            (default: --select-mode)
 #   XOVI_START   XOVI start script                         (default: $HOME/xovi/start)
 #   XOVI_SO      used when there is no start script: preloaded into xochitl
 #                via a /run systemd drop-in        (default: $HOME/xovi/xovi.so)
@@ -30,7 +31,18 @@ SR_DIR="${SR_DIR:-/home/root}"
 SR_BIN="$SR_DIR/smart_remarkable"
 SR_LOG="$SR_DIR/sr.log"
 SR_ENV="${SR_ENV:-$SR_DIR/.env}"
-SR_ARGS="${SR_ARGS:---select-mode}"
+# $SR_ENV holds API keys (OPENAI_API_KEY, GEMINI_API_KEY, ...) and may set
+# SR_ARGS to save this device's start flags. SR_ARGS from the caller wins.
+CALLER_SR_ARGS="${SR_ARGS:-}"
+ENV_LOADED=0
+if [ -f "$SR_ENV" ]; then
+    set -a
+    # shellcheck disable=SC1090
+    . "$SR_ENV" || { printf 'restore: ERROR: cannot read %s\n' "$SR_ENV" >&2; exit 1; }
+    set +a
+    ENV_LOADED=1
+fi
+SR_ARGS="${CALLER_SR_ARGS:-${SR_ARGS:---select-mode}}"
 XOVI_START="${XOVI_START:-${HOME:-/home/root}/xovi/start}"
 XOVI_SO="${XOVI_SO:-${HOME:-/home/root}/xovi/xovi.so}"
 XOVI_DROPIN_DIR="${XOVI_DROPIN_DIR:-/run/systemd/system/xochitl.service.d}"
@@ -52,6 +64,8 @@ fi
 [ -n "$IMG_VERSION" ] || die "could not read IMG_VERSION from $OS_RELEASE"
 SHORT_VERSION=$(printf '%s' "$IMG_VERSION" | cut -d. -f1-2)
 say "reMarkable OS $IMG_VERSION"
+[ "$ENV_LOADED" = 1 ] && say "env loaded: $SR_ENV"
+say "app args: $SR_ARGS"
 
 # 2. Binary present
 [ -f "$SR_BIN" ] || die "$SR_BIN is missing; redeploy it with ./build.sh <host>"
@@ -129,14 +143,6 @@ if [ -n "$pids" ]; then
     say "app ok: already running (pid ${pids% })"
 else
     cd "$SR_DIR" || die "cannot cd to $SR_DIR"
-    # API keys (OPENAI_API_KEY, GEMINI_API_KEY, ...) live in $SR_ENV.
-    if [ -f "$SR_ENV" ]; then
-        set -a
-        # shellcheck disable=SC1090
-        . "$SR_ENV" || die "cannot read $SR_ENV"
-        set +a
-        say "env loaded: $SR_ENV"
-    fi
     # SR_ARGS is intentionally split into separate arguments.
     # shellcheck disable=SC2086
     nohup "$SR_BIN" $SR_ARGS > "$SR_LOG" 2>&1 &

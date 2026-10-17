@@ -315,9 +315,10 @@ nothing.
 If there is no `~/xovi/start` (only `xovi.so` and `extensions.d`), the script
 preloads `~/xovi/xovi.so` into xochitl through a systemd drop-in under `/run`,
 which a reboot clears, so run it again after a reboot. API keys in
-`~/.env` are loaded before the app starts. For an Azure OpenAI deployment, pass
-the engine and model, for example
-`SR_ARGS="--select-mode --engine openai --model gpt-5.4" ./restore.sh`.
+`~/.env` are loaded before the app starts. To save this device's start flags,
+add an `SR_ARGS` line to `~/.env`, for example
+`SR_ARGS="--select-mode --trigger-corner four-finger --engine openai --model gpt-5.4 --image-model"`.
+An `SR_ARGS` passed on the command line overrides it for one run.
 
 Overrides: `XOVI_START=/path/to/xovi/start` (default `~/xovi/start`),
 `SKIP_XOVI=1`, `XOVI_TIMEOUT=30`, `SR_ARGS="..."` (default `--select-mode`), `SR_DIR`
