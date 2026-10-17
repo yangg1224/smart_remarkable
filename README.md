@@ -63,10 +63,16 @@ the refined version draws in their place. Needs `GEMINI_API_KEY` or
 - **Select Mode** (`--select-mode`). Tap the trigger corner, then tap two
   opposite corners around a piece of handwriting to select it, then two more
   corners to choose where the answer should be drawn. The cropped selection
-  is sent to the LLM, and the answer comes back as real ink scaled/centered
-  into your placement box — genuine pen strokes you can move and resize
-  afterward with reMarkable's native selection tool. See `SELECT_MODE.md`
-  for the full walkthrough.
+  is sent to the LLM, and the answer comes back drawn into your placement
+  box. See `SELECT_MODE.md` for the full walkthrough.
+
+  By default (`--answer-style text`) the answer is typed with the virtual
+  keyboard rather than hand-drawn. It automatically falls back to real pen
+  strokes (`--answer-style handwriting`'s behavior — genuine ink you can
+  move/resize afterward with reMarkable's native selection tool) whenever
+  typing isn't possible: no placement box, a character the keyboard can't
+  type (after normalizing look-alike punctuation like curly quotes and
+  em-dashes), or `--answer-style handwriting` set explicitly.
 
 - **LLM button (`xovi-ext/llmbutton`).** A XOVI native extension
   (`llmbutton.so`) that hooks into the running `xochitl` process at the Qt
@@ -186,6 +192,7 @@ sketch/redraw flow respectively.
 | `--engine-api-key` | from env var | API key |
 | `--prompt` | `general.json` | Prompt template (auto-switches to `selection.json` in select mode) |
 | `--select-mode` | off | Enable Select Mode |
+| `--answer-style` | `text` | `text` types the Select Mode answer, `handwriting` draws it as pen strokes (typing falls back to handwriting automatically if it can't type the answer) |
 | `--image-model` | off (`gemini-2.5-flash-image` if passed bare) | Render Draw-button sketches with an image-generation model |
 | `--image-api-key` | `GEMINI_API_KEY` / `GOOGLE_API_KEY` | API key for the image model |
 | `--trigger-corner` | `UR` | `UR`/`UL`/`LR`/`LL` |

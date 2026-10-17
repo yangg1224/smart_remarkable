@@ -29,6 +29,9 @@ pub struct Config {
     pub no_trigger: bool,
     pub apply_segmentation: bool,
     pub select_mode: bool,
+    // How the select-mode answer is produced: "text" types it with the
+    // virtual keyboard, "handwriting" draws pen strokes.
+    pub answer_style: String,
     // Image-generation model for Draw-button sketches (e.g.
     // "gemini-2.5-flash-image" aka nano banana). None = draw via LLM SVG.
     pub image_model: Option<String>,
@@ -69,6 +72,7 @@ impl Default for Config {
             no_trigger: false,
             apply_segmentation: false,
             select_mode: false,
+            answer_style: "text".to_string(),
             image_model: None,
             image_api_key: None,
             web_search: false,
@@ -139,6 +143,12 @@ impl Config {
         // Validate thinking tokens
         if self.thinking_tokens == 0 {
             return Err(anyhow::anyhow!("thinking_tokens must be greater than 0"));
+        }
+
+        // Validate answer style
+        match self.answer_style.as_str() {
+            "text" | "handwriting" => {}
+            other => return Err(anyhow::anyhow!("Invalid answer_style: {} (expected 'text' or 'handwriting')", other)),
         }
 
         Ok(())
