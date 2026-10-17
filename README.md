@@ -289,6 +289,41 @@ ANTHROPIC_API_KEY=sk-... ./smart_remarkable --select-mode
   `-3.17.ko`, `-3.18.ko`, `-3.22.ko`). Other OS versions may need a rebuilt
   module — see `utils/rmpp/`.
 
+**After a reMarkable OS update**
+
+OS updates replace the system partition. The binary in `/home/root`
+survives, but XOVI's hook (the LLM/Draw buttons), any autostart you added
+under `/etc`, and the running app do not. `build.sh` copies
+`scripts/restore.sh` next to the binary (or `scp scripts/restore.sh
+root@<device-ip>:`), so after each update run:
+
+```bash
+ssh root@<device-ip> ./restore.sh
+```
+
+It reads `IMG_VERSION`, checks the binary is present, and on a Paper Pro
+checks there is uinput support for that OS version (`/dev/uinput`, a loaded
+module, or a bundled `uinput-<version>.ko`). If there isn't, it exits
+non-zero with a clear message instead of starting an app that can't draw.
+Then it re-runs XOVI's start script (only if XOVI isn't already loaded into
+xochitl), waits up to 30s for xochitl to come back, and starts
+`./smart_remarkable --select-mode` in the background, logging to `sr.log`,
+if it isn't already running. If the app dies within 2s of starting, it
+exits non-zero and prints the end of `sr.log`. Running it again changes
+nothing.
+
+If there is no `~/xovi/start` (only `xovi.so` and `extensions.d`), the script
+preloads `~/xovi/xovi.so` into xochitl through a systemd drop-in under `/run`,
+which a reboot clears, so run it again after a reboot. API keys in
+`~/.env` are loaded before the app starts. To save this device's start flags,
+add an `SR_ARGS` line to `~/.env`, for example
+`SR_ARGS="--select-mode --trigger-corner four-finger --engine openai --model gpt-5.4 --image-model"`.
+An `SR_ARGS` passed on the command line overrides it for one run.
+
+Overrides: `XOVI_START=/path/to/xovi/start` (default `~/xovi/start`),
+`SKIP_XOVI=1`, `XOVI_TIMEOUT=30`, `SR_ARGS="..."` (default `--select-mode`), `SR_DIR`
+(default `/home/root`). API keys come from `/home/root/.env` as usual.
+
 ## LLM API Keys
 
 Set whichever provider's key you plan to use as an environment variable, or
