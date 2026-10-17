@@ -312,6 +312,13 @@ if it isn't already running. If the app dies within 2s of starting, it
 exits non-zero and prints the end of `sr.log`. Running it again changes
 nothing.
 
+If there is no `~/xovi/start` (only `xovi.so` and `extensions.d`), the script
+preloads `~/xovi/xovi.so` into xochitl through a systemd drop-in under `/run`,
+which a reboot clears, so run it again after a reboot. API keys in
+`~/.env` are loaded before the app starts. For an Azure OpenAI deployment, pass
+the engine and model, for example
+`SR_ARGS="--select-mode --engine openai --model gpt-5.4" ./restore.sh`.
+
 Overrides: `XOVI_START=/path/to/xovi/start` (default `~/xovi/start`),
 `SKIP_XOVI=1`, `XOVI_TIMEOUT=30`, `SR_ARGS="..."` (default `--select-mode`), `SR_DIR`
 (default `/home/root`). API keys come from `/home/root/.env` as usual.

@@ -8,13 +8,16 @@
 #   ssh root@<device-ip> ./restore.sh
 #
 # Steps: read IMG_VERSION, check the binary, check uinput support for this OS
-# version (Paper Pro), re-run XOVI's start script, start the app if it isn't
+# version (Paper Pro), re-run XOVI's start script (or preload xovi.so), start the app if it isn't
 # already running. Safe to run repeatedly: a second run changes nothing.
 #
 # Overrides (environment):
 #   SR_DIR       directory holding the binary and sr.log  (default: /home/root)
+#   SR_ENV       env file with API keys, loaded before start (default: $SR_DIR/.env)
 #   SR_ARGS      arguments passed to the app               (default: --select-mode)
 #   XOVI_START   XOVI start script                         (default: $HOME/xovi/start)
+#   XOVI_SO      used when there is no start script: preloaded into xochitl
+#                via a /run systemd drop-in        (default: $HOME/xovi/xovi.so)
 #   SKIP_XOVI=1  don't touch XOVI
 #   XOVI_TIMEOUT seconds to wait for xochitl after xovi/start (default: 30)
 #   SR_START_CHECK seconds after launch to confirm the app is still up (default: 2)
@@ -26,8 +29,11 @@ set -u
 SR_DIR="${SR_DIR:-/home/root}"
 SR_BIN="$SR_DIR/smart_remarkable"
 SR_LOG="$SR_DIR/sr.log"
+SR_ENV="${SR_ENV:-$SR_DIR/.env}"
 SR_ARGS="${SR_ARGS:---select-mode}"
 XOVI_START="${XOVI_START:-${HOME:-/home/root}/xovi/start}"
+XOVI_SO="${XOVI_SO:-${HOME:-/home/root}/xovi/xovi.so}"
+XOVI_DROPIN_DIR="${XOVI_DROPIN_DIR:-/run/systemd/system/xochitl.service.d}"
 SKIP_XOVI="${SKIP_XOVI:-0}"
 XOVI_TIMEOUT="${XOVI_TIMEOUT:-30}"
 SR_START_CHECK="${SR_START_CHECK:-2}"
@@ -76,6 +82,16 @@ xovi_active() {
     done
     return 1
 }
+# xochitl restarts after XOVI is hooked in; wait for it before the app.
+wait_xochitl() {
+    waited=0
+    until pidof xochitl >/dev/null 2>&1; do
+        [ "$waited" -ge "$XOVI_TIMEOUT" ] && die "xochitl did not come back within ${XOVI_TIMEOUT}s after $1; app not started. Check 'systemctl status xochitl'."
+        sleep 1
+        waited=$((waited + 1))
+    done
+    say "xochitl running again"
+}
 if [ "$SKIP_XOVI" = "1" ]; then
     say "xovi skipped (SKIP_XOVI=1)"
 elif xovi_active; then
@@ -83,16 +99,20 @@ elif xovi_active; then
 elif [ -x "$XOVI_START" ]; then
     say "starting xovi: $XOVI_START"
     "$XOVI_START" || die "$XOVI_START failed"
-    # xovi/start restarts xochitl; wait for it to come back before the app.
-    waited=0
-    until pidof xochitl >/dev/null 2>&1; do
-        [ "$waited" -ge "$XOVI_TIMEOUT" ] && die "xochitl did not come back within ${XOVI_TIMEOUT}s after $XOVI_START; app not started. Check 'systemctl status xochitl'."
-        sleep 1
-        waited=$((waited + 1))
-    done
-    say "xochitl running again"
+    wait_xochitl "$XOVI_START"
+elif [ -f "$XOVI_SO" ]; then
+    # No start script (only xovi.so + extensions.d): preload it the same way,
+    # via a systemd drop-in under /run so nothing in /etc is changed.
+    say "starting xovi: preloading $XOVI_SO into xochitl"
+    mkdir -p "$XOVI_DROPIN_DIR" || die "cannot create $XOVI_DROPIN_DIR"
+    printf '[Service]\nEnvironment="LD_PRELOAD=%s"\n' "$XOVI_SO" > "$XOVI_DROPIN_DIR/xovi.conf" \
+        || die "cannot write $XOVI_DROPIN_DIR/xovi.conf"
+    systemctl daemon-reload || die "systemctl daemon-reload failed"
+    systemctl restart xochitl || die "systemctl restart xochitl failed"
+    wait_xochitl "the xovi preload"
+    xovi_active || die "xochitl restarted but xovi is not loaded; check 'systemctl cat xochitl'"
 else
-    die "XOVI start script not found at $XOVI_START (set XOVI_START=/path/to/xovi/start or SKIP_XOVI=1)"
+    die "XOVI not found: no start script at $XOVI_START and no $XOVI_SO (set XOVI_START=/path/to/xovi/start or SKIP_XOVI=1)"
 fi
 
 # 5. App
@@ -109,6 +129,14 @@ if [ -n "$pids" ]; then
     say "app ok: already running (pid ${pids% })"
 else
     cd "$SR_DIR" || die "cannot cd to $SR_DIR"
+    # API keys (OPENAI_API_KEY, GEMINI_API_KEY, ...) live in $SR_ENV.
+    if [ -f "$SR_ENV" ]; then
+        set -a
+        # shellcheck disable=SC1090
+        . "$SR_ENV" || die "cannot read $SR_ENV"
+        set +a
+        say "env loaded: $SR_ENV"
+    fi
     # SR_ARGS is intentionally split into separate arguments.
     # shellcheck disable=SC2086
     nohup "$SR_BIN" $SR_ARGS > "$SR_LOG" 2>&1 &
