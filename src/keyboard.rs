@@ -322,4 +322,104 @@ impl Keyboard {
         self.progress_count = 0;
         Ok(())
     }
+
+    /// True iff every char in `s` can be typed with [`string_to_keypresses`]
+    /// (i.e. is in the key map, or is '\n' which maps to KEY_ENTER).
+    pub fn can_type(&self, s: &str) -> bool {
+        self.first_untypable_char(s).is_none()
+    }
+
+    /// First char in `s` that [`string_to_keypresses`] can't type, if any.
+    pub fn first_untypable_char(&self, s: &str) -> Option<char> {
+        s.chars().find(|&c| c != '\n' && !self.key_map.contains_key(&c))
+    }
+}
+
+/// Map common non-ASCII punctuation that LLMs like to produce onto the
+/// characters the virtual keyboard's key map actually supports, so typed
+/// answers don't get rejected over cosmetic Unicode punctuation.
+pub fn normalize_for_keyboard(s: &str) -> String {
+    let mut out = String::with_capacity(s.len());
+    for c in s.chars() {
+        match c {
+            '\u{2018}' | '\u{2019}' => out.push('\''),
+            '\u{201C}' | '\u{201D}' => out.push('"'),
+            '\u{2013}' | '\u{2014}' | '\u{2212}' => out.push('-'),
+            '\u{2026}' => out.push_str("..."),
+            '\u{2192}' => out.push_str("->"),
+            '\u{2190}' => out.push_str("<-"),
+            '\u{21D2}' => out.push_str("=>"),
+            '\u{00D7}' => out.push('x'),
+            '\u{00F7}' => out.push('/'),
+            '\u{2264}' => out.push_str("<="),
+            '\u{2265}' => out.push_str(">="),
+            '\u{2260}' => out.push_str("!="),
+            '\u{00A0}' | '\u{2009}' => out.push(' '),
+            '\u{2022}' | '\u{00B7}' => out.push('-'),
+            other => out.push(other),
+        }
+    }
+    out
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn keyboard() -> Keyboard {
+        Keyboard::new(true, true)
+    }
+
+    #[test]
+    fn plain_english_is_typable() {
+        let kb = keyboard();
+        let s = "Hello, world! This is a test (42%) - ok?\n";
+        assert_eq!(normalize_for_keyboard(s), s);
+        assert!(kb.can_type(s));
+    }
+
+    #[test]
+    fn curly_quotes_dash_arrow_times_become_typable_after_normalization() {
+        let kb = keyboard();
+        let s = "\u{2018}it\u{2019}s\u{201C}fine\u{201D}\u{2014}go\u{2192}here \u{00D7} 2";
+        assert!(!kb.can_type(s));
+        let normalized = normalize_for_keyboard(s);
+        assert_eq!(normalized, "'it's\"fine\"-go->here x 2");
+        assert!(kb.can_type(&normalized));
+    }
+
+    #[test]
+    fn chinese_is_not_typable() {
+        let kb = keyboard();
+        let s = normalize_for_keyboard("\u{4f60}\u{597d}");
+        assert!(!kb.can_type(&s));
+    }
+
+    #[test]
+    fn accented_latin_is_not_typable() {
+        let kb = keyboard();
+        let s = normalize_for_keyboard("caf\u{e9}");
+        assert!(!kb.can_type(&s));
+    }
+
+    #[test]
+    fn emoji_is_not_typable() {
+        let kb = keyboard();
+        let s = normalize_for_keyboard("hello \u{1f600}");
+        assert!(!kb.can_type(&s));
+    }
+
+    #[test]
+    fn integral_sign_is_not_typable() {
+        let kb = keyboard();
+        let s = normalize_for_keyboard("\u{222b} f(x) dx");
+        assert!(!kb.can_type(&s));
+    }
+
+    #[test]
+    fn mixed_english_and_chinese_is_not_typable() {
+        let kb = keyboard();
+        let s = normalize_for_keyboard("Hello \u{4f60}\u{597d}");
+        assert!(!kb.can_type(&s));
+    }
 }

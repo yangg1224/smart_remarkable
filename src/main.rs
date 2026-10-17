@@ -16,7 +16,7 @@ use smart_remarkable::{
     device::DeviceModel,
     embedded_assets::load_config,
     image_gen::ImageGen,
-    keyboard::Keyboard,
+    keyboard::{normalize_for_keyboard, Keyboard},
     llm_engine::{anthropic::Anthropic, google::Google, openai::OpenAI, LLMEngine},
     pen::Pen,
     simulation::SimulationConfig,
@@ -122,6 +122,13 @@ pub struct Args {
     /// so it can afterwards be moved/resized with the native selection tool.
     #[arg(long)]
     select_mode: bool,
+
+    /// How the select-mode answer is produced: "text" types it with the
+    /// virtual keyboard (falling back to handwriting if the answer has
+    /// characters the keyboard can't type, or there's no placement box),
+    /// "handwriting" always draws pen strokes.
+    #[arg(long, default_value = "text")]
+    answer_style: String,
 
     /// Generate Draw-button sketches with an image-generation model instead
     /// of LLM-authored SVG. Pass a model name, or no value for the default
@@ -892,6 +899,7 @@ fn register_tools(
         let save_bitmap = config.save_bitmap.clone();
         let no_draw = config.no_draw;
         let test_mode = config.is_test_mode();
+        let answer_style = config.answer_style.clone();
 
         fn make_render_svg_answer(
             output_file: Option<String>,
@@ -1257,6 +1265,70 @@ fn register_tools(
                 }
 
                 let placement = placement_slot.lock().ok().and_then(|mut slot| slot.take());
+
+                // Typed-text output: types the answer with the virtual
+                // keyboard instead of drawing pen strokes. Falls back to the
+                // handwriting path below (unchanged) whenever that isn't
+                // possible, so characters are never silently dropped.
+                let normalized_answer = normalize_for_keyboard(&lines.join("\n"));
+                let mut skip_reason = if answer_style != "text" {
+                    Some("style setting".to_string())
+                } else if no_draw {
+                    Some("no_draw".to_string())
+                } else if let Some(c) = lock!(keyboard).first_untypable_char(&normalized_answer) {
+                    Some(format!("untypable char U+{:04X}", c as u32))
+                } else if placement.is_none() {
+                    Some("no placement box".to_string())
+                } else {
+                    None
+                };
+
+                if skip_reason.is_none() {
+                    let rect = placement.unwrap();
+                    let typed_ok = if test_mode {
+                        lock!(keyboard).string_to_keypresses(&normalized_answer).is_ok()
+                    } else {
+                        let activated = tokio::task::block_in_place(|| {
+                            tokio::runtime::Handle::current().block_on(async {
+                                let mut touch = Touch::new(false, TriggerCorner::UpperRight);
+                                let previous_tool = touch.switch_to_tool(PenTool::Ballpoint).await?;
+                                touch.select_text_tool().await?;
+                                touch.tap((rect.x + 10, rect.y + 10)).await?;
+                                tokio::time::sleep(Duration::from_millis(500)).await;
+                                Ok::<PenTool, anyhow::Error>(previous_tool)
+                            })
+                        });
+                        match activated {
+                            Ok(previous_tool) => {
+                                let result = lock!(keyboard).string_to_keypresses(&normalized_answer);
+                                if previous_tool != PenTool::Unknown {
+                                    tokio::task::block_in_place(|| {
+                                        tokio::runtime::Handle::current()
+                                            .block_on(async { Touch::new(false, TriggerCorner::UpperRight).restore_tool(previous_tool).await })
+                                    })
+                                    .ok();
+                                }
+                                if let Err(e) = &result {
+                                    log::error!("Failed to type answer: {}", e);
+                                }
+                                result.is_ok()
+                            }
+                            Err(e) => {
+                                log::error!("Failed to activate text tool: {}", e);
+                                false
+                            }
+                        }
+                    };
+
+                    if typed_ok {
+                        info!("answer output: text ({} chars)", normalized_answer.chars().count());
+                        return;
+                    }
+                    skip_reason = Some("typing failed".to_string());
+                }
+
+                info!("answer output: handwriting (reason: {})", skip_reason.unwrap());
+
                 let line_svgs = match &placement {
                     Some(rect) => fit_lines_to_rect(&lines, *rect).unwrap_or_else(|e| {
                         log::error!("Failed to fit lines to placement box: {}, drawing combined", e);
