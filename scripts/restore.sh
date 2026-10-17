@@ -16,6 +16,8 @@
 #   SR_ARGS      arguments passed to the app               (default: --select-mode)
 #   XOVI_START   XOVI start script                         (default: $HOME/xovi/start)
 #   SKIP_XOVI=1  don't touch XOVI
+#   XOVI_TIMEOUT seconds to wait for xochitl after xovi/start (default: 30)
+#   SR_START_CHECK seconds after launch to confirm the app is still up (default: 2)
 #   SR_OS_RELEASE, SR_HWREVISION, SR_PROC  test hooks for /etc/os-release,
 #                /etc/hwrevision and /proc
 
@@ -27,6 +29,8 @@ SR_LOG="$SR_DIR/sr.log"
 SR_ARGS="${SR_ARGS:---select-mode}"
 XOVI_START="${XOVI_START:-${HOME:-/home/root}/xovi/start}"
 SKIP_XOVI="${SKIP_XOVI:-0}"
+XOVI_TIMEOUT="${XOVI_TIMEOUT:-30}"
+SR_START_CHECK="${SR_START_CHECK:-2}"
 OS_RELEASE="${SR_OS_RELEASE:-/etc/os-release}"
 HWREVISION="${SR_HWREVISION:-/etc/hwrevision}"
 PROC="${SR_PROC:-/proc}"
@@ -79,6 +83,14 @@ elif xovi_active; then
 elif [ -x "$XOVI_START" ]; then
     say "starting xovi: $XOVI_START"
     "$XOVI_START" || die "$XOVI_START failed"
+    # xovi/start restarts xochitl; wait for it to come back before the app.
+    waited=0
+    until pidof xochitl >/dev/null 2>&1; do
+        [ "$waited" -ge "$XOVI_TIMEOUT" ] && die "xochitl did not come back within ${XOVI_TIMEOUT}s after $XOVI_START; app not started. Check 'systemctl status xochitl'."
+        sleep 1
+        waited=$((waited + 1))
+    done
+    say "xochitl running again"
 else
     die "XOVI start script not found at $XOVI_START (set XOVI_START=/path/to/xovi/start or SKIP_XOVI=1)"
 fi
@@ -100,5 +112,13 @@ else
     # SR_ARGS is intentionally split into separate arguments.
     # shellcheck disable=SC2086
     nohup "$SR_BIN" $SR_ARGS > "$SR_LOG" 2>&1 &
-    say "app started (pid $!), logging to $SR_LOG"
+    app_pid=$!
+    # Catch an app that dies right away (bad API key, missing uinput, ...).
+    sleep "$SR_START_CHECK"
+    if [ -z "$(app_pids)" ]; then
+        printf 'restore: ERROR: app exited within %ss of starting. Last lines of %s:\n' "$SR_START_CHECK" "$SR_LOG" >&2
+        tail -n 20 "$SR_LOG" >&2
+        exit 1
+    fi
+    say "app started (pid $app_pid), logging to $SR_LOG"
 fi

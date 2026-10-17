@@ -306,12 +306,14 @@ checks there is uinput support for that OS version (`/dev/uinput`, a loaded
 module, or a bundled `uinput-<version>.ko`). If there isn't, it exits
 non-zero with a clear message instead of starting an app that can't draw.
 Then it re-runs XOVI's start script (only if XOVI isn't already loaded into
-xochitl) and starts `./smart_remarkable --select-mode` in the background,
-logging to `sr.log`, if it isn't already running. Running it again changes
+xochitl), waits up to 30s for xochitl to come back, and starts
+`./smart_remarkable --select-mode` in the background, logging to `sr.log`,
+if it isn't already running. If the app dies within 2s of starting, it
+exits non-zero and prints the end of `sr.log`. Running it again changes
 nothing.
 
 Overrides: `XOVI_START=/path/to/xovi/start` (default `~/xovi/start`),
-`SKIP_XOVI=1`, `SR_ARGS="..."` (default `--select-mode`), `SR_DIR`
+`SKIP_XOVI=1`, `XOVI_TIMEOUT=30`, `SR_ARGS="..."` (default `--select-mode`), `SR_DIR`
 (default `/home/root`). API keys come from `/home/root/.env` as usual.
 
 ## LLM API Keys
