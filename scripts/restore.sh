@@ -9,7 +9,21 @@
 #
 # Steps: read IMG_VERSION, check the binary, check uinput support for this OS
 # version (Paper Pro), re-run XOVI's start script (or preload xovi.so), start the app if it isn't
-# already running. Safe to run repeatedly: a second run changes nothing.
+# already running, then install the boot autostart unit. Safe to run
+# repeatedly: a second run changes nothing.
+#
+# Autostart: after a successful run it installs smart-remarkable-restore.service,
+# a oneshot unit that runs this script once per boot, after xochitl. /etc is a
+# tmpfs overlay on the Paper Pro (wiped on every reboot), so the unit and its
+# multi-user.target.wants link go in /usr/lib/systemd/system on the root
+# partition (remounted rw for the write). An OS update swaps that partition and
+# drops the unit, so run ./restore.sh once by hand after each update; that also
+# reinstalls autostart. The unit never retries, has a start timeout, and does not
+# Require xochitl, so a failing app can't block or loop the tablet.
+#
+#   ./restore.sh --no-autostart   turn autostart off (creates ~/.sr-no-autostart
+#                                 and removes the unit); the running app is untouched
+#   ./restore.sh --autostart      turn it back on (removes the flag, then a normal run)
 #
 # Overrides (environment):
 #   SR_DIR       directory holding the binary and sr.log  (default: /home/root)
@@ -22,6 +36,9 @@
 #   SKIP_XOVI=1  don't touch XOVI
 #   XOVI_TIMEOUT seconds to wait for xochitl after xovi/start (default: 30)
 #   SR_START_CHECK seconds after launch to confirm the app is still up (default: 2)
+#   XOVI_SETTLE  seconds xochitl must stay up after the xovi preload (default: 5)
+#   SR_UNIT_DIR  where the autostart unit goes      (default: /usr/lib/systemd/system)
+#   SR_NO_AUTOSTART_FLAG  flag file that disables autostart (default: $SR_DIR/.sr-no-autostart)
 #   SR_OS_RELEASE, SR_HWREVISION, SR_PROC  test hooks for /etc/os-release,
 #                /etc/hwrevision and /proc
 
@@ -49,12 +66,78 @@ XOVI_DROPIN_DIR="${XOVI_DROPIN_DIR:-/run/systemd/system/xochitl.service.d}"
 SKIP_XOVI="${SKIP_XOVI:-0}"
 XOVI_TIMEOUT="${XOVI_TIMEOUT:-30}"
 SR_START_CHECK="${SR_START_CHECK:-2}"
+XOVI_SETTLE="${XOVI_SETTLE:-5}"
+SR_UNIT_NAME=smart-remarkable-restore.service
+SR_UNIT_DIR="${SR_UNIT_DIR:-/usr/lib/systemd/system}"
+SR_NO_AUTOSTART_FLAG="${SR_NO_AUTOSTART_FLAG:-$SR_DIR/.sr-no-autostart}"
 OS_RELEASE="${SR_OS_RELEASE:-/etc/os-release}"
 HWREVISION="${SR_HWREVISION:-/etc/hwrevision}"
 PROC="${SR_PROC:-/proc}"
 
 say() { printf 'restore: %s\n' "$*"; }
 die() { printf 'restore: ERROR: %s\n' "$*" >&2; exit 1; }
+
+# Autostart unit helpers. The root partition is mounted ro at boot; remount it
+# rw only for the write and put it back if we changed it.
+ROOT_REMOUNTED=0
+root_rw() {
+    if ! touch "$SR_UNIT_DIR/.sr-write-test" 2>/dev/null; then
+        mount -o remount,rw / || return 1
+        ROOT_REMOUNTED=1
+    fi
+    rm -f "$SR_UNIT_DIR/.sr-write-test"
+}
+root_restore() {
+    sync
+    [ "$ROOT_REMOUNTED" = 1 ] && { mount -o remount,ro / 2>/dev/null || say "note: / left mounted rw"; }
+    ROOT_REMOUNTED=0
+}
+unit_text() {
+    cat <<UNIT
+# Installed by $SR_DIR/restore.sh (smart_remarkable). Runs it once per boot.
+# Off: touch $SR_NO_AUTOSTART_FLAG   (or ./restore.sh --no-autostart)
+[Unit]
+Description=smart_remarkable: restore XOVI and start the app (restore.sh)
+After=xochitl.service home.mount
+RequiresMountsFor=$SR_DIR
+ConditionPathExists=$SR_DIR/restore.sh
+ConditionPathExists=!$SR_NO_AUTOSTART_FLAG
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+Environment=HOME=$SR_DIR
+WorkingDirectory=$SR_DIR
+ExecStart=/bin/sh $SR_DIR/restore.sh
+TimeoutStartSec=120
+KillMode=process
+
+[Install]
+WantedBy=multi-user.target
+UNIT
+}
+remove_autostart() {
+    unit="$SR_UNIT_DIR/$SR_UNIT_NAME"
+    link="$SR_UNIT_DIR/multi-user.target.wants/$SR_UNIT_NAME"
+    if [ -e "$unit" ] || [ -L "$link" ]; then
+        root_rw || { say "cannot remount / rw; autostart stays off via $SR_NO_AUTOSTART_FLAG"; return 0; }
+        rm -f "$link" "$unit"
+        root_restore
+        systemctl daemon-reload
+        say "autostart unit removed"
+    fi
+}
+
+case "${1:-}" in
+    --no-autostart)
+        touch "$SR_NO_AUTOSTART_FLAG" || die "cannot create $SR_NO_AUTOSTART_FLAG"
+        remove_autostart
+        say "autostart off ($SR_NO_AUTOSTART_FLAG). Turn it back on with ./restore.sh --autostart"
+        exit 0 ;;
+    --autostart) rm -f "$SR_NO_AUTOSTART_FLAG" ;;
+    "") ;;
+    *) die "unknown option: $1 (use --no-autostart or --autostart)" ;;
+esac
 
 # 1. IMG_VERSION
 IMG_VERSION=""
@@ -90,7 +173,9 @@ fi
 # 4. XOVI (re-enables the llmbutton LLM/Draw buttons)
 xovi_active() {
     for pid in $(pidof xochitl 2>/dev/null); do
-        if tr '\0' '\n' 2>/dev/null < "$PROC/$pid/environ" | grep -q '^LD_PRELOAD=.*xovi'; then
+        # Check the mapped libraries, not just LD_PRELOAD: ld.so ignores a
+        # preload it can't load (e.g. an empty or broken xovi.so).
+        if grep -q 'xovi\.so' "$PROC/$pid/maps" 2>/dev/null; then
             return 0
         fi
     done
@@ -117,14 +202,29 @@ elif [ -x "$XOVI_START" ]; then
 elif [ -f "$XOVI_SO" ]; then
     # No start script (only xovi.so + extensions.d): preload it the same way,
     # via a systemd drop-in under /run so nothing in /etc is changed.
+    # If xochitl doesn't come up cleanly with it, drop the preload again so the
+    # tablet stays usable (xochitl's OnFailure is emergency.target).
+    xovi_rollback() {
+        rm -f "$XOVI_DROPIN_DIR/xovi.conf"
+        systemctl daemon-reload
+        systemctl reset-failed xochitl 2>/dev/null
+        systemctl restart xochitl
+        die "$1; removed the xovi preload and restarted xochitl without it; app not started"
+    }
     say "starting xovi: preloading $XOVI_SO into xochitl"
     mkdir -p "$XOVI_DROPIN_DIR" || die "cannot create $XOVI_DROPIN_DIR"
     printf '[Service]\nEnvironment="LD_PRELOAD=%s"\n' "$XOVI_SO" > "$XOVI_DROPIN_DIR/xovi.conf" \
         || die "cannot write $XOVI_DROPIN_DIR/xovi.conf"
     systemctl daemon-reload || die "systemctl daemon-reload failed"
-    systemctl restart xochitl || die "systemctl restart xochitl failed"
-    wait_xochitl "the xovi preload"
-    xovi_active || die "xochitl restarted but xovi is not loaded; check 'systemctl cat xochitl'"
+    restarts_before=$(systemctl show -p NRestarts --value xochitl 2>/dev/null)
+    systemctl restart xochitl || xovi_rollback "systemctl restart xochitl failed"
+    ( wait_xochitl "the xovi preload" ) || xovi_rollback "xochitl did not come back within ${XOVI_TIMEOUT}s"
+    sleep "$XOVI_SETTLE"
+    restarts_after=$(systemctl show -p NRestarts --value xochitl 2>/dev/null)
+    systemctl is-active -q xochitl && [ "$restarts_after" = "$restarts_before" ] \
+        || xovi_rollback "xochitl crashed with xovi loaded (restarts ${restarts_before:-?} -> ${restarts_after:-?})"
+    xovi_active || xovi_rollback "xochitl restarted but xovi is not loaded"
+    say "xovi ok: loaded into xochitl, stable for ${XOVI_SETTLE}s"
 else
     die "XOVI not found: no start script at $XOVI_START and no $XOVI_SO (set XOVI_START=/path/to/xovi/start or SKIP_XOVI=1)"
 fi
@@ -155,4 +255,31 @@ else
         exit 1
     fi
     say "app started (pid $app_pid), logging to $SR_LOG"
+fi
+
+# 6. Autostart at boot (installed only after a run that got this far)
+if [ -e "$SR_NO_AUTOSTART_FLAG" ]; then
+    say "autostart off ($SR_NO_AUTOSTART_FLAG exists)"
+elif [ ! -d "$SR_UNIT_DIR" ]; then
+    say "autostart skipped: $SR_UNIT_DIR not found"
+else
+    unit="$SR_UNIT_DIR/$SR_UNIT_NAME"
+    link="$SR_UNIT_DIR/multi-user.target.wants/$SR_UNIT_NAME"
+    if [ "$(cat "$unit" 2>/dev/null)" = "$(unit_text)" ] && [ -L "$link" ]; then
+        say "autostart ok: $unit"
+    elif root_rw; then
+        unit_text > "$unit.tmp" && mv "$unit.tmp" "$unit" \
+            && mkdir -p "$SR_UNIT_DIR/multi-user.target.wants" \
+            && ln -sf "../$SR_UNIT_NAME" "$link"
+        ok=$?
+        root_restore
+        systemctl daemon-reload
+        if [ "$ok" = 0 ]; then
+            say "autostart installed: $unit (runs at every boot until the next OS update)"
+        else
+            say "WARNING: could not install $unit; app is running but won't start at boot"
+        fi
+    else
+        say "WARNING: cannot remount / rw; app is running but won't start at boot"
+    fi
 fi

@@ -299,8 +299,8 @@ ANTHROPIC_API_KEY=sk-... ./smart_remarkable --select-mode
 **After a reMarkable OS update**
 
 OS updates replace the system partition. The binary in `/home/root`
-survives, but XOVI's hook (the LLM/Draw buttons), any autostart you added
-under `/etc`, and the running app do not. `build.sh` copies
+survives, but XOVI's hook (the LLM/Draw buttons), the autostart unit, and the
+running app do not. `build.sh` copies
 `scripts/restore.sh` next to the binary (or `scp scripts/restore.sh
 root@<device-ip>:`), so after each update run:
 
@@ -321,11 +321,34 @@ nothing.
 
 If there is no `~/xovi/start` (only `xovi.so` and `extensions.d`), the script
 preloads `~/xovi/xovi.so` into xochitl through a systemd drop-in under `/run`,
-which a reboot clears, so run it again after a reboot. API keys in
+which a reboot clears; the autostart unit below re-adds it at every boot. API keys in
 `~/.env` are loaded before the app starts. To save this device's start flags,
 add an `SR_ARGS` line to `~/.env`, for example
 `SR_ARGS="--select-mode --trigger-corner four-finger --engine openai --model gpt-5.4 --image-model"`.
 An `SR_ARGS` passed on the command line overrides it for one run.
+
+**Autostart at boot.** After a successful run, `restore.sh` installs
+`smart-remarkable-restore.service`, a oneshot unit that runs `restore.sh` once
+per boot after xochitl (re-adding the XOVI preload and starting the app). On
+the Paper Pro `/etc` is a tmpfs overlay that every reboot wipes, so the unit and
+its `multi-user.target.wants` link go in `/usr/lib/systemd/system` on the root
+partition (remounted rw just for the write). An OS update replaces that
+partition, so autostart is gone after an update until you run `./restore.sh`
+once by hand, which reinstalls it. That's on purpose too: a new OS version is
+never auto-booted into an XOVI or app build that hasn't been checked on it.
+
+The unit can't take the tablet down with it: it has no `Requires=` on
+xochitl, never restarts, and gives up after 120s. If xochitl doesn't come
+back cleanly with the XOVI preload, `restore.sh` removes the preload and
+restarts xochitl without it.
+
+- Turn autostart off: `./restore.sh --no-autostart` (or `touch ~/.sr-no-autostart`).
+  The running app is left alone.
+- Turn it back on: `./restore.sh --autostart`.
+- Check it: `systemctl status smart-remarkable-restore` and
+  `journalctl -b -u smart-remarkable-restore`. (`systemctl is-enabled` reports
+  `disabled` because the link lives under `/usr/lib`, not `/etc`; the unit still
+  runs at boot.)
 
 Overrides: `XOVI_START=/path/to/xovi/start` (default `~/xovi/start`),
 `SKIP_XOVI=1`, `XOVI_TIMEOUT=30`, `SR_ARGS="..."` (default `--select-mode`), `SR_DIR`
