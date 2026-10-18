@@ -173,7 +173,9 @@ fi
 # 4. XOVI (re-enables the llmbutton LLM/Draw buttons)
 xovi_active() {
     for pid in $(pidof xochitl 2>/dev/null); do
-        if tr '\0' '\n' 2>/dev/null < "$PROC/$pid/environ" | grep -q '^LD_PRELOAD=.*xovi'; then
+        # Check the mapped libraries, not just LD_PRELOAD: ld.so ignores a
+        # preload it can't load (e.g. an empty or broken xovi.so).
+        if grep -q 'xovi\.so' "$PROC/$pid/maps" 2>/dev/null; then
             return 0
         fi
     done
